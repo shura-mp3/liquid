@@ -16,6 +16,15 @@ import '../styles/app.css';
 
 import { SettingsApp } from './SettingsApp';
 import { OverlayApp } from './OverlayApp';
+import { ipc } from '../providers/ipc';
+
+/** Which view a window label resolves to. Logged so the route is verifiable. */
+function routeNameFor(label: string): string {
+  if (label === 'main') return 'settings';
+  if (label.startsWith('overlay-')) return 'overlay';
+  if (label === 'island') return 'island';
+  return 'unknown';
+}
 
 function pickRoot(label: string) {
   if (label === 'main') return <SettingsApp />;
@@ -44,3 +53,10 @@ document.body.dataset['window'] = label;
 createRoot(container).render(
   <React.StrictMode>{pickRoot(label)}</React.StrictMode>,
 );
+
+// Report that this window genuinely rendered. If a window looks blank or shows a
+// WebView2 error page, the absence of this line in the log is the fastest way to
+// tell "the page never loaded" apart from "the page loaded and threw".
+ipc
+  .reportFrontendReady(routeNameFor(label), window.location.href)
+  .catch((e) => console.error('could not report frontend ready', e));

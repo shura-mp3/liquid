@@ -92,6 +92,12 @@ export const ipc = {
   getDiagnostics: () => invoke<Diagnostics>('get_diagnostics'),
   setLaunchAtLogin: (enabled: boolean) => invoke<void>('set_launch_at_login', { enabled }),
   showSettingsWindow: () => invoke<void>('show_settings_window'),
+  /**
+   * Tell the native side the page actually loaded. Window creation succeeding does
+   * not mean the webview rendered anything, so this is what proves it.
+   */
+  reportFrontendReady: (route: string, href: string) =>
+    invoke<void>('report_frontend_ready', { route, href }),
 };
 
 /**

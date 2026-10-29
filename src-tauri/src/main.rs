@@ -273,6 +273,7 @@ fn main() {
             commands::get_diagnostics,
             commands::set_launch_at_login,
             commands::show_settings_window,
+            commands::report_frontend_ready,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

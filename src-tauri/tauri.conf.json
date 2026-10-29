@@ -5,7 +5,7 @@
   "identifier": "com.shura.liquid",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:5183",
+    "devUrl": "http://127.0.0.1:5183",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },

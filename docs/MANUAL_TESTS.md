@@ -195,7 +195,35 @@ Enable Windows *Show animations* off / `prefers-reduced-motion`.
 
 ## P7 — Results log
 
-### Run 2026-10-29 — Phase 1
+### Correction to the first Phase 1 run
+
+The original Phase 1 evidence below was gathered by launching the **debug binary
+directly**, with no Vite dev server running. Every window was therefore showing
+WebView2's `ERR_CONNECTION_REFUSED` page the entire time. The window-style results
+were still accurate — styles are a property of the native window, not its contents —
+but the run proved nothing about whether the app *renders*, and the report did not
+say so because the check did not exist.
+
+That gap is closed: each webview now calls `report_frontend_ready` when React mounts,
+and **no run counts as a pass unless the log shows one `frontend ready` line per
+window.** A created window is not a working window.
+
+### Run 2026-10-29 (b) — after the dev-server fix
+
+Command: `npm run tauri:dev`. All results below are from the same run.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Vite binds where the webview looks | **AUTOMATED PASS** | `netstat`: `127.0.0.1:5183 LISTENING`. Both `http://127.0.0.1:5183/` and `http://localhost:5183/` return HTTP 200. |
+| Settings window renders | **AUTOMATED PASS** | `frontend ready label=main route=settings href=http://127.0.0.1:5183/` |
+| Overlay 1 renders | **AUTOMATED PASS** | `frontend ready label=overlay-0 route=overlay` |
+| Overlay 2 renders | **AUTOMATED PASS** | `frontend ready label=overlay-1 route=overlay` |
+| Each window loads its intended route | **AUTOMATED PASS** | Routes logged as `settings`, `overlay`, `overlay` — label-based routing resolves correctly. |
+| No `ERR_CONNECTION_REFUSED` | **AUTOMATED PASS** | A webview that cannot load the document cannot execute JS, so three `frontend ready` lines are only possible if all three documents loaded. |
+| No warnings or errors at startup | **AUTOMATED PASS** | `grep -E "WARN|ERROR"` over the log: no matches. |
+| Overlay styles still correct under `tauri dev` | **AUTOMATED PASS** | External probe: `TOPMOST, TOOLWINDOW, NOACTIVATE` on both overlays. |
+
+### Run 2026-10-29 (a) — Phase 1, superseded by the correction above
 
 | Check | Result | Evidence |
 |---|---|---|

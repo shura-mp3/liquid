@@ -276,6 +276,23 @@ pub fn set_launch_at_login(state: State<'_, AppState>, enabled: bool) -> Result<
     state.persist()
 }
 
+/// Called by each webview once React has mounted.
+///
+/// Exists because window creation succeeding tells you nothing about whether the
+/// *page* loaded. Phase 1 was signed off on externally-probed window styles while
+/// every window was in fact showing WebView2's `ERR_CONNECTION_REFUSED` page — the
+/// native side had no idea. This log line is the evidence that the frontend is
+/// really running, and it is the first thing to check when a window looks blank.
+#[tauri::command]
+pub fn report_frontend_ready(window: WebviewWindow, route: String, href: String) {
+    tracing::info!(
+        label = %window.label(),
+        %route,
+        %href,
+        "frontend ready"
+    );
+}
+
 #[tauri::command]
 pub fn show_settings_window(app: AppHandle) -> Result<(), String> {
     let window = app

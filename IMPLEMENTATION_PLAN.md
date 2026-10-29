@@ -61,10 +61,25 @@ Goal: a real transparent always-on-top overlay on Windows 10, proven on this mac
 5. ~~No black transparency after 50 rapid toggles.~~ **NOT VERIFIED** — the failure mode is
    visual. Debounce is implemented at 120 ms.
 6. Settings survive a restart: **VERIFIED** by the Rust test suite.
+7. **The app actually renders: VERIFIED.** All three webviews (`main`, `overlay-0`,
+   `overlay-1`) load and mount React, each on its correct route, confirmed by the
+   `frontend ready` IPC signal in the log. This criterion was missing from the
+   original list, which is precisely how the first run was signed off while every
+   window was displaying `ERR_CONNECTION_REFUSED`.
 
 See [`docs/MANUAL_TESTS.md`](docs/MANUAL_TESTS.md) §P7 for the evidence table.
 
 ### Findings worth keeping from this phase
+
+- **A created window is not a working window.** Native window creation, extended
+  styles and Z-order all succeed normally while the webview shows an error page. The
+  first Phase 1 sign-off probed styles from another process and reported success while
+  nothing had rendered at all. Every window now reports `frontend ready` over IPC when
+  React mounts, and that line is required evidence for any render claim.
+- **Vite and WebView2 disagreed about `localhost`.** Node 17+ resolves it to `::1`
+  first, so Vite bound IPv6-only; WebView2 asked for `127.0.0.1` and was refused.
+  `curl http://localhost:5183` succeeded throughout, which made it look like the
+  server was fine. Both sides are now pinned to a literal `127.0.0.1`.
 
 - **tao rewrites the entire extended-style word** when it re-applies its own window flags,
   which `show()` does. Styles set once at creation verified as written and were then

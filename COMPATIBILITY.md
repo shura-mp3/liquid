@@ -71,6 +71,8 @@ Measured by probing the live window from a separate process
 | **`skip_taskbar(true)` does not set `WS_EX_TOOLWINDOW`** | tao uses `ITaskbarList::DeleteTab` on Windows, so the flag must be applied explicitly if Alt-Tab exclusion is wanted. |
 | `SetWindowLongPtrW` success cannot be read from its return | It returns the previous value, and 0 is legitimate. Success must be confirmed by reading the style back, which is what now happens. |
 | Idle footprint | 47.8 MB working set with two overlays, the settings window and the tray icon. |
+| **`localhost` means different things to Node and to WebView2** | On this machine `localhost` resolves to `::1` first, so Vite's default host bound **only** to `[::1]:5183` with nothing on `127.0.0.1:5183`. WebView2 asks for the IPv4 address, so every window got `ERR_CONNECTION_REFUSED` while `curl http://localhost:5183` returned 200 — the two clients disagreed about the name. Both `server.host` and `devUrl` now use a literal `127.0.0.1`, so no name resolution is involved on either side. Binding to `0.0.0.0` would also work but would expose the dev server to the LAN, which is not an acceptable fix for a loopback problem. |
+| A created window says nothing about a loaded page | Native window creation, styles and Z-order all succeed normally while the webview displays an error page. Each webview now reports `frontend ready` over IPC when React mounts; that log line is the only evidence that the app actually renders. |
 
 ---
 

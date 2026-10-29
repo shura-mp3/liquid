@@ -92,6 +92,22 @@ npm install
 npm run tauri:dev
 ```
 
+### Which binary needs the dev server
+
+This trips people up, so it is worth stating plainly:
+
+| How you built it | Frontend source | Needs Vite running? |
+|---|---|---|
+| `npm run tauri:dev` | `devUrl` (`http://127.0.0.1:5183`) | **yes** — the CLI starts it for you |
+| `cargo build` in `src-tauri/` | `devUrl` | **yes**, and nothing starts it for you |
+| `npm run tauri:build` | assets bundled into the exe | no |
+| `npx tauri build --debug` | assets bundled into the exe | no |
+
+A debug binary launched straight from `src-tauri/target/debug/liquid.exe` with no dev
+server will show WebView2's *"Hmmm… can't reach this page"* with
+`ERR_CONNECTION_REFUSED`. That is Tauri working as designed, not a bug. Use
+`npm run tauri:dev`, or build a standalone debug binary with `npx tauri build --debug`.
+
 ### Useful commands
 
 ```bash
@@ -130,6 +146,44 @@ or right-click the tray icon and choose *Restore interactivity*. Both paths work
 independently of the overlay window, so you cannot get locked out.
 
 ---
+
+## Troubleshooting
+
+### A window shows "Hmmm… can't reach this page" / `ERR_CONNECTION_REFUSED`
+
+The webview could not reach the dev server. Check, in order:
+
+1. **Are you running a bare debug binary?** See the table above — it needs Vite.
+2. **Is anything listening, and on which address family?**
+
+```bash
+netstat -ano | findstr ":5183"
+```
+
+   You want `127.0.0.1:5183 ... LISTENING`. If you see `[::1]:5183` instead, the dev
+   server bound to the **IPv6** loopback only while WebView2 asks for the **IPv4**
+   one, and the connection is refused even though `curl http://localhost:5183` works
+   perfectly. This is exactly the bug that `vite.config.ts` now pins
+   `server.host = '127.0.0.1'` to prevent; both it and `devUrl` use a literal
+   `127.0.0.1` rather than the name `localhost` so no DNS resolution is involved.
+
+3. **Did the frontend actually load?** The app logs a line per window when React
+   mounts:
+
+```bash
+findstr "frontend ready" "%APPDATA%\com.shura.liquid\logs\liquid.log*"
+```
+
+   Three lines (`main`, `overlay-0`, `overlay-1` on a two-monitor setup) means the
+   pages rendered. No lines means the webview never got the document — a connection
+   problem, not a rendering problem. Window creation succeeding tells you nothing
+   about this, which is why the signal exists.
+
+### Port 5183 is already in use
+
+`strictPort` is on deliberately, so Vite fails rather than quietly moving to another
+port and leaving Tauri pointing at the old one. Free the port, or change it in **both**
+`vite.config.ts` and `src-tauri/tauri.conf.json` — they must match.
 
 ## Where your data lives
 
