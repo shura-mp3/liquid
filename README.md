@@ -127,8 +127,14 @@ node scripts/make-icon.mjs             # regenerate the app icon from source
 Rust tests:
 
 ```bash
-cd src-tauri && cargo test
+cd src-tauri
+cargo test
 ```
+
+> **PowerShell note.** Windows PowerShell 5.1 — what you get by default on Windows 10 —
+> does not support `&&` between commands; it only arrived in PowerShell 7. Run the
+> lines above one at a time, or install PowerShell 7. Every command block in this
+> README is written one command per line for that reason.
 
 ---
 
