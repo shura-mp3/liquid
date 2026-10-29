@@ -58,6 +58,20 @@ These are open upstream issues that directly affect a transparent always-on-top 
   is forced to 255. Glass translucency must therefore come from CSS/shaders over a fully
   transparent window, never from the native background colour.
 
+### Verified on this machine during Phase 1
+
+Measured by probing the live window from a separate process
+(`scripts/verify-overlay-styles.ps1`), not by asking the app:
+
+| Finding | Detail |
+|---|---|
+| Tauri transparent-window style word | `0x08040198` = `WS_EX_TOPMOST \| WS_EX_TOOLWINDOW \| WS_EX_NOACTIVATE \| WS_EX_NOREDIRECTIONBITMAP \| WS_EX_WINDOWEDGE \| WS_EX_ACCEPTFILES` |
+| **`WS_EX_LAYERED` is not used and must not be forced** | Tauri 2.12 sets `WS_EX_NOREDIRECTIONBITMAP` (`0x40000`), so per-pixel alpha comes from DirectComposition. A layered window requires the redirection surface that flag removes, so the two are mutually exclusive. The overlay is confirmed transparent without `WS_EX_LAYERED`. |
+| **tao clobbers externally-set styles** | tao keeps its own `WindowFlags` model and rewrites `GWL_STYLE` *and* `GWL_EXSTYLE` wholesale when re-applying them, which `show()` triggers. Styles applied at creation verified as written, then reverted. They are now re-asserted after every visibility change and on focus change. |
+| **`skip_taskbar(true)` does not set `WS_EX_TOOLWINDOW`** | tao uses `ITaskbarList::DeleteTab` on Windows, so the flag must be applied explicitly if Alt-Tab exclusion is wanted. |
+| `SetWindowLongPtrW` success cannot be read from its return | It returns the previous value, and 0 is legitimate. Success must be confirmed by reading the style back, which is what now happens. |
+| Idle footprint | 47.8 MB working set with two overlays, the settings window and the tray icon. |
+
 ---
 
 ## 3. Music provider matrix

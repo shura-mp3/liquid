@@ -1,0 +1,128 @@
+/*
+ * The Liquid Glass primitive.
+ *
+ * Honest about what this is: a transparent overlay cannot sample the pixels of the
+ * windows behind it, so this is a layered *approximation* of glass, not real
+ * refraction. See COMPATIBILITY.md §5. What it does use:
+ *
+ *   1. backdrop-filter blur + saturate — genuine, and does blur whatever the
+ *      compositor has behind the window where the OS supports it.
+ *   2. A procedural frost substrate (inline SVG turbulence) for the grain real
+ *      frosted glass has and a flat blur does not.
+ *   3. A gradient sheen that reads as a specular highlight.
+ *   4. An inner rim light plus a hairline border, which is what actually sells the
+ *      impression of a physical edge.
+ *   5. A soft drop shadow for separation from the desktop.
+ */
+
+.lq-glass {
+  position: relative;
+  border-radius: var(--lq-glass-radius);
+  background: linear-gradient(
+    148deg,
+    rgb(var(--lq-glass-base) / calc(var(--lq-glass-alpha) * 0.92)) 0%,
+    rgb(var(--lq-glass-base) / calc(var(--lq-glass-alpha) * 0.74)) 46%,
+    rgb(var(--lq-glass-base) / calc(var(--lq-glass-alpha) * 0.86)) 100%
+  );
+  backdrop-filter: blur(var(--lq-glass-blur)) saturate(var(--lq-glass-saturation));
+  border: var(--lq-glass-border-width) solid
+    rgb(var(--lq-border) / calc(0.22 + var(--lq-glass-edge-glow) * 0.38));
+  box-shadow:
+    /* rim light just inside the edge — the main glass tell */
+    inset 0 1px 0 0 rgb(var(--lq-glass-highlight) / calc(var(--lq-glass-reflection) * 0.55)),
+    inset 0 0 0 1px rgb(var(--lq-glass-highlight) / calc(var(--lq-glass-reflection) * 0.1)),
+    /* interior depth */
+    inset 0 -18px 36px -24px rgb(var(--lq-bg) / 0.7),
+    /* separation from whatever is behind */
+    0 10px calc(26px * var(--lq-glass-shadow-softness)) rgb(var(--lq-bg) / 0.42),
+    0 2px 6px rgb(var(--lq-bg) / 0.3);
+  transition:
+    border-color var(--lq-dur-base) var(--lq-ease),
+    box-shadow var(--lq-dur-base) var(--lq-ease),
+    transform var(--lq-dur-base) var(--lq-spring);
+}
+
+/* Frost grain. Procedural, so there is no texture asset to ship or load. */
+.lq-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: calc(var(--lq-glass-frost) * 0.5);
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23f)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+/* Specular sweep across the upper-left, the direction light usually comes from. */
+.lq-glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: var(--lq-glass-reflection);
+  background: linear-gradient(
+    132deg,
+    rgb(var(--lq-glass-highlight) / 0.28) 0%,
+    rgb(var(--lq-glass-highlight) / 0.06) 22%,
+    transparent 46%,
+    transparent 100%
+  );
+}
+
+/* Album tint, layered over the base so the glass picks up the artwork. */
+.lq-glass[data-tinted='true'] {
+  background-image:
+    linear-gradient(
+      148deg,
+      rgb(var(--lq-album-dominant) / calc(var(--lq-glass-tint-strength) * 0.5)) 0%,
+      rgb(var(--lq-album-accent) / calc(var(--lq-glass-tint-strength) * 0.3)) 100%
+    ),
+    linear-gradient(
+      148deg,
+      rgb(var(--lq-glass-base) / calc(var(--lq-glass-alpha) * 0.92)) 0%,
+      rgb(var(--lq-glass-base) / calc(var(--lq-glass-alpha) * 0.74)) 46%,
+      rgb(var(--lq-glass-base) / calc(var(--lq-glass-alpha) * 0.86)) 100%
+    );
+}
+
+.lq-glass[data-interactive='true']:hover {
+  border-color: rgb(var(--lq-border) / calc(0.34 + var(--lq-glass-edge-glow) * 0.42));
+  box-shadow:
+    inset 0 1px 0 0 rgb(var(--lq-glass-highlight) / calc(var(--lq-glass-reflection) * 0.7)),
+    inset 0 0 0 1px rgb(var(--lq-glass-highlight) / calc(var(--lq-glass-reflection) * 0.16)),
+    inset 0 -18px 36px -24px rgb(var(--lq-bg) / 0.7),
+    0 14px calc(34px * var(--lq-glass-shadow-softness)) rgb(var(--lq-bg) / 0.5),
+    0 0 calc(22px * var(--lq-glass-edge-glow)) rgb(var(--lq-accent) / 0.22);
+}
+
+/*
+ * Browsers that cannot do backdrop-filter get a more opaque fill instead, because
+ * unblurred translucency over a busy desktop is unreadable. The point of the glass
+ * is that lyrics stay legible.
+ */
+@supports not (backdrop-filter: blur(2px)) {
+  .lq-glass {
+    background: rgb(var(--lq-glass-base) / 0.95);
+  }
+}
+
+/* Drag affordance for overlay widgets. */
+.lq-drag-handle {
+  -webkit-app-region: drag;
+  cursor: grab;
+}
+
+.lq-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Anything interactive inside a drag region must opt back out of dragging. */
+.lq-no-drag,
+.lq-drag-handle button,
+.lq-drag-handle input,
+.lq-drag-handle select,
+.lq-drag-handle a {
+  -webkit-app-region: no-drag;
+}

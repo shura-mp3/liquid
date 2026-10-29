@@ -1,0 +1,190 @@
+/*
+ * Semantic colour and glass tokens.
+ *
+ * Nothing in the app hard-codes a colour. Every component reads a token, which is
+ * what makes eight themes plus album-adaptive tinting tractable instead of a
+ * find-and-replace exercise. A theme is a block that redefines these values.
+ *
+ * Glass numbers come from settings at runtime: the native layer writes
+ * --lq-glass-* onto :root so sliders apply instantly without a reload.
+ */
+
+:root {
+  /* Glass parameters — overwritten from settings at runtime. */
+  --lq-glass-alpha: 0.72;
+  --lq-glass-blur: 22px;
+  --lq-glass-frost: 0.4;
+  --lq-glass-saturation: 1.15;
+  --lq-glass-tint-strength: 0.35;
+  --lq-glass-edge-glow: 0.5;
+  --lq-glass-reflection: 0.3;
+  --lq-glass-border-width: 1px;
+  --lq-glass-radius: 20px;
+  --lq-glass-shadow-softness: 0.6;
+  --lq-anim-speed: 1;
+
+  /* Album-adaptive tint — written per track once Phase 5 lands. Neutral default. */
+  --lq-album-dominant: 88 118 210;
+  --lq-album-accent: 148 108 232;
+
+  /* Typography */
+  --lq-font-ui: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --lq-font-lyrics: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --lq-font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+
+  --lq-text-xs: 0.75rem;
+  --lq-text-sm: 0.8125rem;
+  --lq-text-base: 0.9375rem;
+  --lq-text-lg: 1.125rem;
+  --lq-text-xl: 1.5rem;
+  --lq-text-2xl: 2rem;
+
+  /* Spacing and motion */
+  --lq-space-1: 4px;
+  --lq-space-2: 8px;
+  --lq-space-3: 12px;
+  --lq-space-4: 16px;
+  --lq-space-5: 24px;
+  --lq-space-6: 32px;
+
+  --lq-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
+  --lq-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --lq-dur-fast: calc(120ms / var(--lq-anim-speed));
+  --lq-dur-base: calc(240ms / var(--lq-anim-speed));
+  --lq-dur-slow: calc(420ms / var(--lq-anim-speed));
+}
+
+/* ---- Liquid Midnight (default) ---- */
+:root,
+[data-theme='liquid-midnight'] {
+  --lq-bg: 10 12 24;
+  --lq-surface: 22 26 46;
+  --lq-surface-raised: 32 38 64;
+  --lq-glass-base: 30 38 72;
+  --lq-glass-highlight: 180 212 255;
+  --lq-border: 94 118 180;
+  --lq-text-primary: 236 241 255;
+  --lq-text-secondary: 168 180 214;
+  --lq-text-muted: 112 126 164;
+  --lq-accent: 108 170 255;
+  --lq-accent-strong: 150 198 255;
+  --lq-success: 86 206 160;
+  --lq-warning: 240 186 96;
+  --lq-danger: 248 118 126;
+}
+
+[data-theme='liquid-dark'] {
+  --lq-bg: 14 14 16;
+  --lq-surface: 26 26 30;
+  --lq-surface-raised: 38 38 44;
+  --lq-glass-base: 34 34 40;
+  --lq-glass-highlight: 220 220 230;
+  --lq-border: 102 102 114;
+  --lq-text-primary: 240 240 244;
+  --lq-text-secondary: 174 174 186;
+  --lq-text-muted: 120 120 132;
+  --lq-accent: 138 160 255;
+  --lq-accent-strong: 178 196 255;
+  --lq-success: 96 208 152;
+  --lq-warning: 236 186 102;
+  --lq-danger: 244 120 128;
+}
+
+[data-theme='liquid-light'] {
+  --lq-bg: 242 244 250;
+  --lq-surface: 255 255 255;
+  --lq-surface-raised: 248 250 255;
+  --lq-glass-base: 252 253 255;
+  --lq-glass-highlight: 255 255 255;
+  --lq-border: 176 186 210;
+  --lq-text-primary: 22 26 40;
+  --lq-text-secondary: 78 88 114;
+  --lq-text-muted: 124 134 160;
+  --lq-accent: 42 98 220;
+  --lq-accent-strong: 24 74 190;
+  --lq-success: 22 134 96;
+  --lq-warning: 158 104 12;
+  --lq-danger: 190 44 58;
+}
+
+[data-theme='liquid-crimson'] {
+  --lq-bg: 22 8 12;
+  --lq-surface: 40 14 20;
+  --lq-surface-raised: 56 20 28;
+  --lq-glass-base: 52 18 26;
+  --lq-glass-highlight: 255 200 206;
+  --lq-border: 168 72 86;
+  --lq-text-primary: 255 236 238;
+  --lq-text-secondary: 214 160 168;
+  --lq-text-muted: 158 108 116;
+  --lq-accent: 248 92 110;
+  --lq-accent-strong: 255 136 150;
+  --lq-success: 96 198 146;
+  --lq-warning: 240 180 96;
+  --lq-danger: 255 110 120;
+}
+
+[data-theme='liquid-monochrome'] {
+  --lq-bg: 16 16 16;
+  --lq-surface: 28 28 28;
+  --lq-surface-raised: 42 42 42;
+  --lq-glass-base: 38 38 38;
+  --lq-glass-highlight: 235 235 235;
+  --lq-border: 110 110 110;
+  --lq-text-primary: 244 244 244;
+  --lq-text-secondary: 176 176 176;
+  --lq-text-muted: 126 126 126;
+  --lq-accent: 226 226 226;
+  --lq-accent-strong: 255 255 255;
+  --lq-success: 196 196 196;
+  --lq-warning: 206 206 206;
+  --lq-danger: 236 236 236;
+}
+
+[data-theme='liquid-aurora'] {
+  --lq-bg: 8 20 24;
+  --lq-surface: 16 38 44;
+  --lq-surface-raised: 22 54 62;
+  --lq-glass-base: 20 50 58;
+  --lq-glass-highlight: 180 255 240;
+  --lq-border: 72 158 158;
+  --lq-text-primary: 230 255 250;
+  --lq-text-secondary: 156 206 200;
+  --lq-text-muted: 104 150 148;
+  --lq-accent: 86 226 198;
+  --lq-accent-strong: 134 246 222;
+  --lq-success: 110 230 170;
+  --lq-warning: 238 200 110;
+  --lq-danger: 250 128 134;
+}
+
+/*
+ * Album Adaptive derives its surfaces from the artwork tint while keeping the text
+ * tokens fixed, so extracted colours can never make lyrics unreadable. Contrast is
+ * checked in src/core/colour.ts before the tint is written.
+ */
+[data-theme='album-adaptive'] {
+  --lq-bg: 10 12 20;
+  --lq-surface: var(--lq-album-dominant);
+  --lq-surface-raised: var(--lq-album-accent);
+  --lq-glass-base: var(--lq-album-dominant);
+  --lq-glass-highlight: 235 242 255;
+  --lq-border: var(--lq-album-accent);
+  --lq-text-primary: 240 244 255;
+  --lq-text-secondary: 186 196 220;
+  --lq-text-muted: 132 142 170;
+  --lq-accent: var(--lq-album-accent);
+  --lq-accent-strong: 255 255 255;
+  --lq-success: 86 206 160;
+  --lq-warning: 240 186 96;
+  --lq-danger: 248 118 126;
+}
+
+/* Respect the OS reduced-motion preference: this app animates a lot by design. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --lq-dur-fast: 1ms;
+    --lq-dur-base: 1ms;
+    --lq-dur-slow: 1ms;
+  }
+}

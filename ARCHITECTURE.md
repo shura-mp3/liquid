@@ -35,7 +35,7 @@ reality.
 | Window label | Taskbar | Styles | Purpose |
 |---|---|---|---|
 | `main` | yes | normal, decorated | Settings, onboarding, diagnostics, lyrics editor host |
-| `overlay-<monitor-id>` | no | `WS_EX_TOOLWINDOW \| WS_EX_NOACTIVATE`, transparent, topmost | One widget canvas per monitor |
+| `overlay-<index>` | no | `WS_EX_TOPMOST \| WS_EX_TOOLWINDOW \| WS_EX_NOACTIVATE`, transparent | One widget canvas per monitor |
 | `island` | no | same as overlay | Dynamic Island capsule |
 | `obs` | no | transparent, *not* topmost | Fixed-size capture surface for OBS |
 
@@ -54,14 +54,13 @@ application logic; everything Win32/WinRT lives under `windows::`, `media::`, `a
 src-tauri/src/
 ├── main.rs             Tauri builder, window creation, command registry
 ├── state.rs            AppState: the single owner of shared handles
-├── windows/            PLATFORM-SPECIFIC. Nothing else may call Win32 directly.
-│   ├── mod.rs          re-exports a platform-neutral facade
-│   ├── overlay.rs      ex-style application, topmost enforcement, no_redirection_bitmap
-│   ├── hittest.rs      WM_NCHITTEST subclass, click-through, drag regions
-│   ├── monitors.rs     EnumDisplayMonitors, per-monitor DPI, hot-plug via WM_DISPLAYCHANGE
-│   ├── hotkeys.rs      RegisterHotKey, conflict detection, rebinding
-│   ├── tray.rs         shell notify icon + menu (incl. click-through rescue)
-│   ├── foreground.rs   active-app detection via WinEvent hook (event-driven, not polled)
+├── platform/           PLATFORM-SPECIFIC. Nothing else may call Win32 directly.
+│   │                   (Named `platform`, not `windows`: a crate-root module called
+│   │                   `windows` is ambiguous with the `windows` crate in `use`.)
+│   ├── mod.rs          platform-neutral types + error facade
+│   ├── overlay.rs      ex-style application, topmost enforcement, click-through,
+│   │                   obstruction detection
+│   ├── monitors.rs     EnumDisplayMonitors, per-monitor DPI, off-screen rescue
 │   └── startup.rs      HKCU\...\Run registration (no admin, no scheduled task)
 ├── media/
 │   ├── gsmtc.rs        Windows.Media.Control session manager + change subscriptions
@@ -216,6 +215,10 @@ blocks on the renderer.
 - **Glass is CSS + shader approximation**, by necessity — see the honesty note in
   `COMPATIBILITY.md` §5. Layers: translucency, procedural frosted-noise substrate, simulated
   border refraction, specular edge highlight, album-art tint, soft shadow.
+- Transparency comes from Tauri's `WS_EX_NOREDIRECTIONBITMAP` + DirectComposition path, so
+  **`WS_EX_LAYERED` is deliberately not set** — the two are mutually exclusive. Overlay
+  styles are re-asserted after every window operation because tao rewrites the style word
+  from its own model. Both facts were established empirically; see `COMPATIBILITY.md` §2.
 - All colour flows from **semantic tokens** (`--lq-surface`, `--lq-text-primary`,
   `--lq-accent`, …). No component hard-codes a colour, which is what makes eight themes plus
   album-adaptive tinting tractable.

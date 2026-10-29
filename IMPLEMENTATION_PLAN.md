@@ -25,32 +25,58 @@ DELIBERATELY-NOT-IMPLEMENTED, with primary sources. — met.
 
 ---
 
-## Phase 1 — Functional desktop foundation  `[~]`
+## Phase 1 — Functional desktop foundation  `[~]` built, awaiting visual verification
 
 Goal: a real transparent always-on-top overlay on Windows 10, proven on this machine.
 
-- [ ] Tauri 2 + React + TS + Vite project, building and running
-- [ ] `main` settings window (decorated, taskbar present)
-- [ ] `overlay-*` window: transparent, borderless, topmost, `WS_EX_TOOLWINDOW`, `WS_EX_NOACTIVATE`
-- [ ] Topmost re-assertion (other apps steal Z-order; re-apply on focus events, not on a timer)
-- [ ] Click-through via `WS_EX_TRANSPARENT` toggle, **debounced** (mitigates tauri#15947)
-- [ ] `WM_NCHITTEST` subclass: drag regions vs interactive regions
-- [ ] **Recovery guarantees:** tray menu item + global hotkey that always restore interactivity
-- [ ] Global hotkeys with conflict detection and rebinding
-- [ ] System tray icon and menu
-- [ ] Monitor enumeration, per-monitor DPI, hot-plug handling, off-screen widget rescue
-- [ ] Baseline Liquid Glass token layer and glass panel primitive
-- [ ] Settings persistence (SQLite + schema validation + migration v1)
+- [x] Tauri 2 + React + TS + Vite project, building and running
+- [x] `main` settings window (decorated, taskbar present)
+- [x] `overlay-*` window: transparent, borderless, topmost, `WS_EX_TOOLWINDOW`, `WS_EX_NOACTIVATE`
+- [x] Topmost + style re-assertion on focus change and after every visibility change
+- [x] Click-through via `WS_EX_TRANSPARENT` toggle, **debounced** (mitigates tauri#15947)
+- [x] **Recovery guarantees:** tray menu item + global hotkey that always restore interactivity
+- [x] Global hotkeys, with failures to register reported rather than swallowed
+- [x] System tray icon and menu
+- [x] Monitor enumeration, per-monitor DPI, off-screen widget rescue
+- [x] Baseline Liquid Glass token layer and glass panel primitive, 7 themes
+- [x] Settings persistence (SQLite + schema validation + migration v1)
+- [x] External style-verification script (`scripts/verify-overlay-styles.ps1`)
+- [ ] Hot-plug handling on `WM_DISPLAYCHANGE` (rescue logic exists and is tested; the event
+      hook that invokes it is not wired yet)
+- [ ] `WM_NCHITTEST` subclass — not needed yet: drag is handled in the webview, and the
+      current widget model has no non-rectangular hit regions. Deferred to the widget system.
+- [ ] Live hotkey re-registration on rebind (currently requires a restart)
 
 **Exit criteria**
-1. Overlay visibly floats above File Explorer, a browser, and a borderless-windowed app.
-2. Click-through can be turned on, the desktop beneath is clickable, and it can be turned
-   off again via hotkey *and* via tray — demonstrated, with the window never unrecoverable.
-3. Overlay does not take focus from the foreground app (verified by typing into another app
-   while the overlay is visible).
-4. Overlay appears correctly on each monitor at its own DPI.
-5. Transparency does not go black after 50 rapid click-through toggles (tauri#15947 regression check).
-6. Settings survive a restart.
+1. ~~Overlay visibly floats above File Explorer, a browser, and a borderless-windowed app.~~
+   **NOT VERIFIED** — needs a human; styles confirmed, visual Z-order not observed.
+2. Click-through on/off: **PARTIALLY VERIFIED** — `WS_EX_TRANSPARENT` confirmed to flip via
+   the real global hotkey on both overlays, externally probed. That clicks land on the
+   window beneath, and tray recovery, still need a human.
+3. ~~Overlay does not take focus from the foreground app.~~ **PARTIALLY VERIFIED** —
+   `WS_EX_NOACTIVATE` confirmed present; behaviour not observed.
+4. ~~Overlay appears correctly on each monitor at its own DPI.~~ **PARTIALLY VERIFIED** —
+   one overlay per monitor confirmed at correct coordinates; both displays are at 100 %, so
+   mixed DPI is untested.
+5. ~~No black transparency after 50 rapid toggles.~~ **NOT VERIFIED** — the failure mode is
+   visual. Debounce is implemented at 120 ms.
+6. Settings survive a restart: **VERIFIED** by the Rust test suite.
+
+See [`docs/MANUAL_TESTS.md`](docs/MANUAL_TESTS.md) §P7 for the evidence table.
+
+### Findings worth keeping from this phase
+
+- **tao rewrites the entire extended-style word** when it re-applies its own window flags,
+  which `show()` does. Styles set once at creation verified as written and were then
+  silently reverted. They must be re-asserted after every window operation. This was only
+  caught by probing the window from another process — the app's own report said it had
+  succeeded, because `SetWindowLongPtrW`'s return value cannot distinguish success from a
+  previous value of 0.
+- **`WS_EX_LAYERED` must not be forced.** Tauri 2.12 creates transparent windows with
+  `WS_EX_NOREDIRECTIONBITMAP`, so alpha comes from DirectComposition; the two flags are
+  mutually exclusive. The original design doc had this wrong.
+- **`skip_taskbar(true)` does not set `WS_EX_TOOLWINDOW`** on Windows — tao uses
+  `ITaskbarList::DeleteTab` instead — so the flag has to be applied explicitly.
 
 ---
 

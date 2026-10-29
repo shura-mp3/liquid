@@ -19,6 +19,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "verify:overlay": "powershell -ExecutionPolicy Bypass -File scripts/verify-overlay-styles.ps1",
+    "sync:report": "vite-node scripts/sync-report.ts",
+    "icon": "node scripts/make-icon.mjs && tauri icon src-tauri/icons/source.png",
     "lint": "eslint src tests --ext .ts,.tsx"
   },
   "dependencies": {
