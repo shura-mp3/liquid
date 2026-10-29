@@ -313,6 +313,53 @@ than highlighting a wrong line.
 
 ---
 
+## P10 — Audio and visualisers (Phase 4)
+
+### P10.1 The visualiser tracks real audio
+Play music and watch the spectrum.
+**Pass:** bars move with the music, bass hits push the low bands, and the display is
+clearly correlated with what you hear — not a loop playing regardless.
+
+### P10.2 Silence is still
+Pause the music.
+**Pass:** the bars fall to nothing within a second and stay there. They must not
+freeze at their last height, and must not animate on nothing.
+
+### P10.3 Every visualiser mode works
+Cycle bars, mirrored, circular, waveform and particles.
+**Pass:** each renders and responds; none is a static image.
+
+### P10.4 Device selection and recovery
+1. Settings → Audio capture, switch endpoints. **Pass:** capture restarts on the new
+   device and the status shows it.
+2. Unplug or disable the active device while playing. **Pass:** state goes to
+   `recovering` and capture resumes rather than the thread dying.
+
+### P10.5 Overruns are not falsely reported
+Leave LIQUID running for several minutes with audio playing.
+**Pass:** `Dropped samples` stays at **none**. A steadily climbing count during
+healthy capture is the regression fixed in this phase.
+
+### P10.6 The system-mix limitation is stated
+**Pass:** Settings → Audio capture says plainly that loopback captures everything
+the machine plays and that per-process capture is unavailable on this build.
+
+### Run 2026-10-29 (e) — Phase 4
+
+| Check | Result | Evidence |
+|---|---|---|
+| Capture opens the default endpoint | **PASS (live)** | `device=Voicemeeter AUX Input (VB-Audio Voicemeeter VAIO) sample_rate=48000 channels=2 bits=32 is_float=true` |
+| **Real audio produces correct measurements** | **PASS (live)** | A generated 1 kHz tone at amplitude 0.22: `peak=0.21984` (0.07% error), `rms=0.15498` vs theoretical 0.15556 (0.4% error). |
+| Band placement on real audio | **PASS (live)** | `mid=0.0775` dominant, `bass≈0`, `bands_lit=5` of 64 — energy where 1 kHz belongs, no smearing. |
+| Silence is still | **PASS (live)** | `silent=true`, all bands zero before and after the tone. |
+| No false overrun reporting | **PASS (live)** | `dropped=0` throughout, after the `retain_latest` fix. Before it, a healthy capture reported ~5,000 dropped samples per second. |
+| Band mapping, windowing, beat detection | **PASS** | 46 unit tests against synthetic signals. |
+| Ring buffer under concurrency | **PASS** | Producer and consumer on separate threads, with accounting asserted. |
+| **Visualiser rendering on screen** | **NOT VERIFIED** | The WebGL2 output needs a human looking at it. The data feeding it is verified; the pixels are not. |
+| Device switching and recovery | **NOT VERIFIED** | Needs someone to change or unplug a device (P10.4). |
+
+---
+
 ### Correction to the first Phase 1 run
 
 The original Phase 1 evidence below was gathered by launching the **debug binary

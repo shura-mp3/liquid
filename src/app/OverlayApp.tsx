@@ -16,6 +16,8 @@ import { usePlayback } from '../hooks/usePlayback';
 import { NowPlaying } from '../widgets/NowPlaying';
 import { LyricsPanel, LAYOUTS as LAYOUT_OPTIONS, type LyricsLayout } from '../widgets/LyricsPanel';
 import { useLyrics } from '../hooks/useLyrics';
+import { useAudio } from '../hooks/useAudio';
+import { Spectrum, VISUALISER_MODES, type VisualiserMode } from '../visualizers/Spectrum';
 
 interface WidgetBox {
   x: number;
@@ -79,6 +81,9 @@ export function OverlayApp({ label }: { label: string }) {
   const playback = usePlayback(settings?.globalOffsetMs ?? 0);
   const lyrics = useLyrics(playback.snapshot, playback.offsetKey);
   const [layout, setLayout] = useState<LyricsLayout>('centered');
+  const audio = useAudio();
+  const [visMode, setVisMode] = useState<VisualiserMode>('bars');
+  const [showVisualiser, setShowVisualiser] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +105,7 @@ export function OverlayApp({ label }: { label: string }) {
     const unlisteners = [
       listen<boolean>('liquid://toggle-click-through', (e) => setClickThrough(e.payload)),
       listen('liquid://toggle-hud', () => setShowChrome((v) => !v)),
+      listen('liquid://toggle-visualiser', () => setShowVisualiser((v) => !v)),
       listen<Settings>('liquid://settings-changed', (e) => {
         setSettings(e.payload);
         applyGlassToDom(e.payload.glass, e.payload.theme);
@@ -131,6 +137,39 @@ export function OverlayApp({ label }: { label: string }) {
   }, []);
 
   const nowPlaying = useDraggableWidget({ x: 48, y: 96 }, locked);
+  /**
+   * Reactive borders: write audio energy straight into CSS custom properties on
+   * the overlay root, inside the audio loop. CSS then drives the glow with no
+   * React render at all — the alternative, putting bass level into state at 50 Hz,
+   * would re-render every widget for a border colour.
+   */
+  useEffect(() => {
+    const root = document.documentElement;
+    let frame = 0;
+    let beat = 0;
+    let last = performance.now();
+
+    const tick = (now: number) => {
+      frame = requestAnimationFrame(tick);
+      const dt = now - last;
+      last = now;
+
+      const f = audio.reader();
+      if (!f) return;
+
+      beat = f.beat ? 1 : Math.max(0, beat - dt / 320);
+      root.style.setProperty('--lq-audio-bass', f.bass.toFixed(3));
+      root.style.setProperty('--lq-audio-beat', beat.toFixed(3));
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      root.style.removeProperty('--lq-audio-bass');
+      root.style.removeProperty('--lq-audio-beat');
+    };
+  }, [audio.reader]);
+
+  const visBox = useDraggableWidget({ x: 440, y: 96 }, locked);
   const lyricsBox = useDraggableWidget({ x: 48, y: 420 }, locked);
 
   if (!settings) return null;
@@ -148,6 +187,7 @@ export function OverlayApp({ label }: { label: string }) {
       <div
         ref={nowPlaying.ref}
         className="lq-glass lq-widget lq-widget--np"
+        data-reactive="true"
         data-interactive={!clickThrough}
         data-tinted="true"
         style={{ transform: `translate3d(${nowPlaying.pos.x}px, ${nowPlaying.pos.y}px, 0)` }}
@@ -203,6 +243,59 @@ export function OverlayApp({ label }: { label: string }) {
           </p>
         )}
       </div>
+
+      {/* Visualiser. Driven by real FFT output from WASAPI loopback capture. */}
+      {showVisualiser && (
+        <div
+          ref={visBox.ref}
+          className="lq-glass lq-widget lq-widget--vis"
+          data-reactive="true"
+          data-interactive={!clickThrough}
+          data-tinted="true"
+          style={{ transform: `translate3d(${visBox.pos.x}px, ${visBox.pos.y}px, 0)` }}
+          {...visBox.handlers}
+        >
+          <header className="lq-widget__bar">
+            <span className="lq-widget__title">Visualiser</span>
+            <select
+              className="lq-input lq-input--compact lq-no-drag"
+              value={visMode}
+              onChange={(e) => setVisMode(e.target.value as VisualiserMode)}
+              aria-label="Visualiser mode"
+            >
+              {VISUALISER_MODES.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </header>
+
+          <Spectrum
+            reader={audio.reader}
+            mode={visMode}
+            fpsCap={settings.fpsCap}
+            height={140}
+          />
+
+          {/* Capture problems are stated. A flat visualiser with no explanation
+              is indistinguishable from a broken one. */}
+          {audio.status && audio.status.state !== 'running' && (
+            <p className="lq-widget__note lq-widget__note--warn">
+              {audio.status.error ?? `Audio capture is ${audio.status.state}.`}
+            </p>
+          )}
+          {audio.status?.state === 'running' && !audio.receiving && (
+            <p className="lq-widget__note">Waiting for audio…</p>
+          )}
+          {audio.status?.state === 'running' && audio.receiving && (
+            <p className="lq-widget__note">
+              {audio.status.deviceName} · {(audio.status.sampleRate / 1000).toFixed(1)} kHz ·
+              system mix, not isolated to one app
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Lyrics. Real now: resolved, matched and timed against the live clock. */}
       <div

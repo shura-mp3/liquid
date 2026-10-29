@@ -1,6 +1,7 @@
 // A release build must not pop a console window behind the overlay.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod audio;
 mod commands;
 mod diagnostics;
 mod lyrics;
@@ -290,6 +291,50 @@ fn start_media_bridge(_app: &tauri::AppHandle) {
     tracing::warn!("media sessions are only implemented for Windows");
 }
 
+/// Start WASAPI loopback capture and forward analysed frames to the webviews.
+///
+/// Failure is not fatal: everything else keeps working and the diagnostics panel
+/// reports why the visualisers are flat, rather than leaving them mysteriously dead.
+#[cfg(windows)]
+fn start_audio_engine(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+
+    let (band_count, device_id, clock) = {
+        let state = app.state::<AppState>();
+        let settings = state.settings.lock();
+        (
+            settings.audio_band_count,
+            settings.audio_device_id.clone(),
+            std::sync::Arc::clone(&state.clock),
+        )
+    };
+
+    let emit_handle = app.clone();
+    let engine = audio::wasapi::AudioEngine::start(
+        band_count,
+        move || clock.now_ms(),
+        move |frame| {
+            // Fired from the audio thread. Emitting directly avoids a hop through
+            // the main thread for every one of ~50 frames a second.
+            if let Err(e) = emit_handle.emit("liquid://audio", frame) {
+                tracing::debug!(error = %e, "could not emit audio frame");
+            }
+        },
+    );
+    if let Some(id) = device_id {
+        engine.set_device(Some(id));
+    }
+
+    let state = app.state::<AppState>();
+    *state.audio.lock() = Some(engine);
+    tracing::info!(band_count, "audio engine started");
+}
+
+#[cfg(not(windows))]
+fn start_audio_engine(_app: &tauri::AppHandle) {
+    tracing::warn!("audio capture is only implemented for Windows");
+}
+
 fn main() {
     let start_minimised = std::env::args().any(|a| a == "--minimised");
 
@@ -327,6 +372,9 @@ fn main() {
             commands::lyrics_forget,
             commands::get_lyric_offset,
             commands::set_lyric_offset,
+            commands::get_capture_status,
+            commands::list_audio_devices,
+            commands::set_audio_device,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -355,6 +403,7 @@ fn main() {
             create_overlays(&handle)?;
             register_hotkeys(&handle);
             start_media_bridge(&handle);
+            start_audio_engine(&handle);
 
             // Restore the saved overlay state.
             if overlay_visible {

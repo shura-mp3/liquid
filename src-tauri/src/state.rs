@@ -39,6 +39,9 @@ pub struct AppState {
     /// Shared so a blocking lookup can take a clone onto a worker thread while the
     /// request throttle stays global rather than per-caller.
     pub lyrics_client: Arc<LrclibClient>,
+    /// `None` when audio capture has not been started or could not start at all.
+    #[cfg(windows)]
+    pub audio: Mutex<Option<crate::audio::wasapi::AudioEngine>>,
     last_click_through_change: Mutex<Option<Instant>>,
     /// Root for the database, logs and the lyrics cache. Held here so Phase 3's
     /// lyrics cache and Phase 7's history export resolve paths from one place rather
@@ -57,6 +60,8 @@ impl AppState {
             #[cfg(windows)]
             media: Mutex::new(None),
             lyrics_client: Arc::new(LrclibClient::new()),
+            #[cfg(windows)]
+            audio: Mutex::new(None),
             last_click_through_change: Mutex::new(None),
             data_dir,
         }

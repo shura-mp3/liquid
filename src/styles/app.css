@@ -1105,3 +1105,40 @@ kbd {
   color: rgb(var(--lq-text-muted));
   opacity: 0.65;
 }
+
+/* ------------------------------------------------------------- visualiser */
+
+.lq-widget--vis {
+  width: 420px;
+}
+
+.lq-vis {
+  display: block;
+  width: 100%;
+  /* Transparent canvas: the glass panel shows through behind the bars. */
+  background: transparent;
+}
+
+.lq-vis__failure {
+  padding: var(--lq-space-4) 0;
+}
+
+/*
+ * Reactive border. Driven by --lq-audio-bass, written by the overlay from the
+ * audio reader, so the panel edge pulses with the music without re-rendering
+ * anything: CSS reads the variable, no React involved.
+ */
+.lq-widget[data-reactive='true'] {
+  --lq-audio-bass: 0;
+  --lq-audio-beat: 0;
+  border-color: rgb(
+    var(--lq-border) /
+    calc(0.22 + var(--lq-glass-edge-glow) * 0.38 + var(--lq-audio-bass) * 0.3)
+  );
+  box-shadow:
+    inset 0 1px 0 0 rgb(var(--lq-glass-highlight) / calc(var(--lq-glass-reflection) * 0.55)),
+    inset 0 0 0 1px rgb(var(--lq-glass-highlight) / calc(var(--lq-glass-reflection) * 0.1)),
+    inset 0 -18px 36px -24px rgb(var(--lq-bg) / 0.7),
+    0 10px calc(26px * var(--lq-glass-shadow-softness)) rgb(var(--lq-bg) / 0.42),
+    0 0 calc(28px * var(--lq-audio-beat)) rgb(var(--lq-accent) / calc(var(--lq-audio-beat) * 0.5));
+}

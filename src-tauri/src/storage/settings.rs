@@ -127,6 +127,10 @@ pub struct Settings {
     /// is a network request carrying the track title and artist, so it is one
     /// switch away.
     pub lyrics_online_lookup: bool,
+    /// Capture endpoint id, or `None` to follow the system default.
+    pub audio_device_id: Option<String>,
+    /// Bands in the spectrum. More is finer but costs a little more per frame.
+    pub audio_band_count: usize,
     pub glass: GlassSettings,
     pub hotkeys: std::collections::BTreeMap<String, String>,
 }
@@ -153,6 +157,8 @@ impl Default for Settings {
             spotify_audio_reactive_visuals: true,
             history_enabled: true,
             lyrics_online_lookup: true,
+            audio_device_id: None,
+            audio_band_count: 64,
             glass: GlassSettings::default(),
             hotkeys,
         }
@@ -183,6 +189,15 @@ fn validate(settings: &Settings) -> Result<()> {
         return Err(invalid(
             "globalOffsetMs",
             "must be within +/-30000 ms".into(),
+        ));
+    }
+    if !(8..=256).contains(&settings.audio_band_count) {
+        return Err(invalid(
+            "audioBandCount",
+            format!(
+                "{} bands is outside the supported 8..256",
+                settings.audio_band_count
+            ),
         ));
     }
     for (action, combo) in &settings.hotkeys {

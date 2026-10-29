@@ -10,11 +10,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { emit } from '@tauri-apps/api/event';
 
 import { usePlayback } from '../hooks/usePlayback';
+import { useAudio } from '../hooks/useAudio';
 import {
   applyGlassToDom,
   ipc,
   type Diagnostics,
   type GlassSettings,
+  type AudioDevice,
   type MonitorInfo,
   type OverlayStatus,
   type Settings,
@@ -23,6 +25,7 @@ import {
 type SectionId =
   | 'general'
   | 'sources'
+  | 'audio'
   | 'glass'
   | 'overlays'
   | 'monitors'
@@ -33,6 +36,7 @@ type SectionId =
 const SECTIONS: Array<{ id: SectionId; label: string; ready: boolean }> = [
   { id: 'general', label: 'General', ready: true },
   { id: 'sources', label: 'Music sources', ready: true },
+  { id: 'audio', label: 'Audio capture', ready: true },
   { id: 'glass', label: 'Liquid Glass', ready: true },
   { id: 'overlays', label: 'Overlays', ready: true },
   { id: 'monitors', label: 'Monitors', ready: true },
@@ -43,8 +47,6 @@ const SECTIONS: Array<{ id: SectionId; label: string; ready: boolean }> = [
 
 const PENDING: Array<{ label: string; phase: string }> = [
   { label: 'Lyrics', phase: 'Phase 3 — engine built and tested, not yet wired to a provider' },
-  { label: 'Audio capture', phase: 'Phase 4 — WASAPI loopback' },
-  { label: 'Visualisers', phase: 'Phase 4 — needs real audio first' },
   { label: 'Widgets library', phase: 'Phase 5' },
   { label: 'Themes editor', phase: 'Phase 5' },
   { label: 'Translation', phase: 'Phase 7' },
@@ -274,6 +276,8 @@ export function SettingsApp() {
         )}
 
         {section === 'sources' && <SourcesPanel />}
+
+        {section === 'audio' && <AudioPanel />}
 
         {section === 'glass' && (
           <Panel
@@ -691,6 +695,118 @@ function SourcesPanel() {
         <strong>About Spotify.</strong> LIQUID integrates no Spotify API, SDK or
         endpoint, and there is no sign-in. Spotify appears here only because the
         desktop app publishes a Windows media session like any other player.
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * Audio capture. Everything shown is read back from the capture engine, including
+ * the limitation that matters most: on Windows 10 the mix cannot be separated per
+ * application, so the visualiser is watching everything the machine plays.
+ */
+function AudioPanel() {
+  const audio = useAudio();
+  const [devices, setDevices] = useState<AudioDevice[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    ipc.listAudioDevices().then(setDevices).catch((e) => setError(String(e)));
+    ipc.getSettings().then(setSettings).catch(() => {});
+  }, []);
+
+  const status = audio.status;
+
+  return (
+    <Panel
+      title="Audio capture"
+      subtitle="WASAPI loopback on a playback endpoint. LIQUID only listens; it never touches the audio path."
+    >
+      {error && <div className="lq-banner lq-banner--error">{error}</div>}
+
+      <dl className="lq-kv lq-kv--wide">
+        <dt>State</dt>
+        <dd>
+          <span className={status?.state === 'running' ? 'lq-ok' : 'lq-warn'}>
+            {status?.state ?? 'unknown'}
+          </span>
+          {status?.error && <span className="lq-muted"> — {status.error}</span>}
+        </dd>
+        <dt>Device</dt>
+        <dd>{status?.deviceName ?? '—'}</dd>
+        <dt>Format</dt>
+        <dd>
+          {status && status.sampleRate > 0
+            ? `${(status.sampleRate / 1000).toFixed(1)} kHz · ${status.channels} ch`
+            : '—'}
+        </dd>
+        <dt>Analysis latency</dt>
+        <dd>{status ? `~${status.latencyMs.toFixed(0)} ms` : '—'}</dd>
+        <dt>Dropped samples</dt>
+        <dd>
+          {status?.droppedSamples ? (
+            <span className="lq-warn">{status.droppedSamples}</span>
+          ) : (
+            <span className="lq-ok">none</span>
+          )}
+        </dd>
+        <dt>Receiving frames</dt>
+        <dd>{audio.receiving ? <span className="lq-ok">yes</span> : 'not yet'}</dd>
+      </dl>
+
+      <Field
+        label="Capture device"
+        hint="Follow the system default, or pin a specific playback endpoint."
+      >
+        <select
+          className="lq-input"
+          value={settings?.audioDeviceId ?? ''}
+          onChange={(e) => {
+            const id = e.target.value || null;
+            ipc
+              .setAudioDevice(id)
+              .then(() => setSettings((s) => (s ? { ...s, audioDeviceId: id } : s)))
+              .catch((err) => setError(String(err)));
+          }}
+        >
+          <option value="">System default</option>
+          {devices.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+              {d.isDefault ? ' (default)' : ''}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <div className="lq-row-end">
+        <button
+          type="button"
+          className="lq-btn lq-btn--ghost"
+          onClick={() => {
+            ipc.listAudioDevices().then(setDevices).catch((e) => setError(String(e)));
+            audio.refreshStatus();
+          }}
+        >
+          Rescan devices
+        </button>
+      </div>
+
+      <div className="lq-note">
+        <strong>The visualiser hears everything, not just your music.</strong> Loopback
+        capture takes the mixed output of the playback device, and Windows 10 build
+        19045 has no per-process loopback — that arrived in build 20348. So a
+        notification, a game or a voice call is part of what you see.{' '}
+        {status && !status.perProcessCapture
+          ? 'This build confirms per-process capture is unavailable.'
+          : ''}
+      </div>
+
+      <div className="lq-note">
+        <strong>No microphone is ever opened.</strong> LIQUID captures only the
+        playback endpoint, and nothing recorded leaves your machine — the samples are
+        turned into a spectrum and discarded.
       </div>
     </Panel>
   );

@@ -127,6 +127,73 @@ pub fn media_seek(state: State<'_, AppState>, position_ms: u64) -> Result<(), St
 }
 
 // ---------------------------------------------------------------------------
+// Audio capture
+// ---------------------------------------------------------------------------
+
+use crate::audio::{AudioDevice, CaptureState, CaptureStatus};
+
+#[tauri::command]
+pub fn get_capture_status(state: State<'_, AppState>) -> CaptureStatus {
+    #[cfg(windows)]
+    {
+        let guard = state.audio.lock();
+        match guard.as_ref() {
+            Some(engine) => engine.status(),
+            None => CaptureStatus {
+                state: CaptureState::Stopped,
+                error: Some("Audio capture is not running.".into()),
+                ..Default::default()
+            },
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = state;
+        CaptureStatus {
+            state: CaptureState::Failed,
+            error: Some("Audio capture is only implemented for Windows.".into()),
+            ..Default::default()
+        }
+    }
+}
+
+#[tauri::command]
+pub fn list_audio_devices() -> Result<Vec<AudioDevice>, String> {
+    #[cfg(windows)]
+    {
+        crate::audio::wasapi::list_devices().map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("audio devices are only enumerable on Windows".into())
+    }
+}
+
+/// Switch capture endpoint. `null` follows the system default.
+#[tauri::command]
+pub fn set_audio_device(
+    state: State<'_, AppState>,
+    device_id: Option<String>,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let guard = state.audio.lock();
+        let engine = guard
+            .as_ref()
+            .ok_or_else(|| "audio capture is not running".to_string())?;
+        engine.set_device(device_id.clone());
+        drop(guard);
+        state.settings.lock().audio_device_id = device_id;
+        state.persist()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (state, device_id);
+        Err("audio capture is only implemented for Windows".into())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Lyrics
 // ---------------------------------------------------------------------------
 

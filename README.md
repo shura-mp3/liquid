@@ -4,7 +4,7 @@ A Liquid Glass music visualiser and live-lyrics HUD for Windows 10 — an always
 widget-based overlay that reads playback state from Windows media sessions and drives
 audio-reactive visuals from the system audio mix.
 
-**Status: in development.** Phases 0-3 of
+**Status: in development.** Phases 0-4 of
 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) are done. The sections below say
 exactly what works today and what does not, because a screenshot of a HUD with
 placeholder text in it is not a feature.
@@ -29,7 +29,9 @@ placeholder text in it is not a feature.
 | Synchronised lyrics: LRCLIB lookup, caching, matching, per-track offsets, 5 layouts | working |
 | Word-level karaoke from Enhanced LRC | implemented; **no word-synced source was found on LRCLIB to test it against** |
 | Music source detection via Windows media sessions (Spotify, browsers, local players) | working — real metadata, artwork, capabilities, arbitration, pinning, transport |
-| WASAPI audio capture and FFT visualisers | **not implemented — Phase 4** |
+| WASAPI loopback capture, FFT analysis, device selection and recovery | working |
+| WebGL2 visualisers: bars, mirrored, circular, waveform, bass particles | working |
+| Audio-reactive glass borders | working |
 | Dynamic Island, particles, ripples, album-adaptive tinting | **not implemented — Phase 5** |
 | Browser extension, lyrics editor, translation, history, OBS output | **not implemented — Phases 6–7** |
 | Installer | **not implemented — Phase 8** |

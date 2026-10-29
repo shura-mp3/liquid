@@ -194,19 +194,50 @@ visibly.
 - **`503 ServerOverloaded` is routine on LRCLIB**, not an edge case. It is handled as
   a first-class backoff path alongside `429`.
 
-## Phase 4 — Audio and visualisers  `[ ]`
+## Phase 4 — Audio and visualisers  `[~]`
 
-- [ ] WASAPI loopback capture thread + SPSC ring buffer
-- [ ] Device enumeration, selection, change/format recovery, health indicator
-- [ ] Probe per-process loopback; expect UNAVAILABLE on 19045 and explain in UI
-- [ ] Hann window, rFFT 2048, log band mapping, RMS, peak, flux, bass, beat, silence gate
-- [ ] Spectrum (vertical/horizontal/circular/mirrored), waveform, particles, ripples, reactive borders
-- [ ] Latency diagnostics
+- [x] WASAPI loopback capture on a dedicated thread, event-driven not polled
+- [x] Lock-free SPSC ring buffer between capture and DSP
+- [x] Device enumeration, manual selection, recovery after a device or format change
+- [x] Capture health reported: state, device, format, latency, overruns
+- [x] Probe per-process loopback — **UNAVAILABLE on 19045** as predicted, and said so
+      in the UI rather than implying the visualiser watches one app
+- [x] Hann window, 2048-point FFT, logarithmic band mapping, RMS, peak, spectral
+      flux, bass/mid/treble, adaptive beat detection, silence gate
+- [x] Attack/release smoothing per band
+- [x] WebGL2 visualiser: spectrum bars, mirrored, circular, waveform, bass particles
+- [x] Reactive borders driven straight from the audio loop into CSS variables
+- [x] Latency diagnostics
+- [ ] Glass ripple surface deformation — belongs with the Phase 5 glass work
 
-**Exit criteria:** visualisers demonstrably track real audio; silence produces stillness, not
-idle animation; measured audio-to-visual latency recorded.
+**Exit criteria**
+1. Visualisers driven by real audio: **VERIFIED** — a 1 kHz tone played through the
+   system produced `peak=0.21984` against a generated amplitude of 0.22 (0.07%
+   error) and `rms=0.15498` against the theoretical `A/√2 = 0.15556` (0.4%), with
+   the energy landing in the mid bands and only 5 of 64 bands lit.
+2. Silence produces stillness: **VERIFIED** — `silent=true`, all bands zero before
+   and after the tone, with the release tail decaying rather than snapping.
+3. Measured audio-to-visual latency recorded: **VERIFIED** — ~53 ms, being the
+   2048-sample analysis window at 48 kHz (42.7 ms) plus one engine period.
+4. Band placement correct: **VERIFIED** by unit tests — a 1 kHz tone lights the
+   1 kHz band and leaks less than 0.45 into bands more than six away.
 
----
+### Findings worth keeping from this phase
+
+- **A sliding-window consumer must not use a trailing read index.** The capture loop
+  always analyses the *newest* window, so older samples being overwritten is the
+  intended behaviour. Counting those as overruns produced a steadily climbing
+  "dropped samples" figure during completely healthy capture — a false alarm that
+  would send someone chasing a problem that does not exist. `retain_latest` now
+  pins the read index behind the newest window, and a regression test asserts that
+  healthy capture reports zero drops.
+- **A loopback client receives nothing at all while the endpoint is idle** — not
+  zeros, no packets. Treating that as "no new audio" would freeze the bars mid-song;
+  the wait has a timeout and a timeout is published as a frame of silence.
+- **The mix format is whatever the user has configured.** This machine's default
+  endpoint is a Voicemeeter virtual device at 48 kHz 32-bit float stereo. 16- and
+  32-bit integer are handled too, and an unrecognised depth is treated as silence
+  rather than reinterpreted as the wrong type, which would produce garbage spikes.
 
 ## Phase 5 — Advanced glass  `[ ]`
 

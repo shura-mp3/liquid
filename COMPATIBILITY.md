@@ -255,6 +255,17 @@ recommending borderless-windowed mode. That is the entire remedy.
 | Isolating one app's audio for analysis | **UNAVAILABLE on this target** | Direct consequence of the row above. The analysed signal is the *system mix* and may include Discord, notifications, game audio. Stated in the UI. |
 | Microphone capture | **NOT IMPLEMENTED** | Not needed; excluded by design for privacy. |
 
+### Verified in Phase 4 on this machine
+
+| Finding | Detail |
+|---|---|
+| Loopback capture works end to end | Default endpoint was a **Voicemeeter virtual device, 48 kHz 32-bit float stereo**. A generated 1 kHz tone at amplitude 0.22 measured `peak=0.21984` and `rms=0.15498` against a theoretical `A/√2 = 0.15556` — 0.07% and 0.4% error through float conversion, downmix and FFT. |
+| Band placement correct on real audio | 1 kHz landed in the mid third with `bass≈0`, and only 5 of 64 bands lit — no spectral smearing. |
+| Silence is genuinely still | `silent=true` and all bands zero before and after the tone, with the release tail decaying smoothly rather than snapping. |
+| Analysis latency | ~53 ms: a 2048-sample window at 48 kHz (42.7 ms) plus one engine period. |
+| **A loopback client gets no packets at all while idle** | Not silent buffers — nothing. The wait must have a timeout, and a timeout published as silence, or the display freezes at the end of a track. |
+| Per-process loopback | Confirmed **unavailable** on 19045, as predicted. The UI states that the visualiser hears the whole system mix. |
+
 ---
 
 ## 9. Feature status summary

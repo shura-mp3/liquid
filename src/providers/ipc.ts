@@ -48,6 +48,9 @@ export interface Settings {
   globalOffsetMs: number;
   spotifyAudioReactiveVisuals: boolean;
   historyEnabled: boolean;
+  lyricsOnlineLookup: boolean;
+  audioDeviceId: string | null;
+  audioBandCount: number;
   glass: GlassSettings;
   hotkeys: Record<string, string>;
 }
@@ -179,6 +182,46 @@ export interface LyricsQuery {
   durationMs: number | null;
 }
 
+// ---------------------------------------------------------------------------
+// Audio capture
+// ---------------------------------------------------------------------------
+
+export type CaptureState = 'stopped' | 'running' | 'recovering' | 'failed';
+
+/** Quantised on the wire: bytes are finer than a display pixel and far smaller. */
+export interface AudioFrame {
+  bands: number[];
+  waveform: number[];
+  rms: number;
+  peak: number;
+  bass: number;
+  mid: number;
+  treble: number;
+  beat: boolean;
+  silent: boolean;
+  /** Positive spectral change; what beat detection runs on. */
+  flux: number;
+  atMs: number;
+}
+
+export interface AudioDevice {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}
+
+export interface CaptureStatus {
+  state: CaptureState;
+  deviceName: string | null;
+  sampleRate: number;
+  channels: number;
+  droppedSamples: number;
+  latencyMs: number;
+  error: string | null;
+  /** False on Windows 10 19045: one application's audio cannot be isolated. */
+  perProcessCapture: boolean;
+}
+
 export interface Diagnostics {
   appVersion: string;
   monotonicClockDegraded: boolean;
@@ -233,6 +276,10 @@ export const ipc = {
   lyricsSaveEdited: (offsetKey: string, text: string) =>
     invoke<ResolvedLyrics>('lyrics_save_edited', { offsetKey, text }),
   lyricsForget: (offsetKey: string) => invoke<void>('lyrics_forget', { offsetKey }),
+  getCaptureStatus: () => invoke<CaptureStatus>('get_capture_status'),
+  listAudioDevices: () => invoke<AudioDevice[]>('list_audio_devices'),
+  setAudioDevice: (deviceId: string | null) => invoke<void>('set_audio_device', { deviceId }),
+
   getLyricOffset: (offsetKey: string) => invoke<number>('get_lyric_offset', { offsetKey }),
   setLyricOffset: (offsetKey: string, offsetMs: number) =>
     invoke<void>('set_lyric_offset', { offsetKey, offsetMs }),
