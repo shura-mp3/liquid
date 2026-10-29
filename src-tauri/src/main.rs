@@ -319,6 +319,14 @@ fn main() {
             commands::media_seek,
             commands::get_artwork,
             commands::refresh_media_sessions,
+            commands::lyrics_lookup,
+            commands::lyrics_accept,
+            commands::lyrics_accept_absent,
+            commands::lyrics_import_file,
+            commands::lyrics_save_edited,
+            commands::lyrics_forget,
+            commands::get_lyric_offset,
+            commands::set_lyric_offset,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

@@ -141,26 +141,58 @@ visibly.
 
 ---
 
-## Phase 3 — Lyrics engine  `[ ]`
+## Phase 3 — Lyrics engine  `[~]`
 
-This phase is gated: no advanced visuals until timing is measured and correct.
+- [x] LRC parser (tags, multi-timestamp lines, malformed input, BOM, CRLF)
+- [x] Enhanced-LRC word-timestamp parser
+- [x] LRCLIB client: required User-Agent, 400 ms throttle, `429` **and `503`** with
+      `Retry-After` + jitter and a bounded ceiling
+- [x] Matcher: duration ±2 s gate, scored title/artist/album, confidence threshold,
+      manual pick when two candidates are indistinguishable
+- [x] Cache in SQLite, including **verified absences** with a 7-day expiry
+- [x] Local `.lrc` import, prioritised over anything fetched, lossy decode for
+      non-UTF-8 files
+- [x] Playback clock wired to live playback
+- [x] Uncertainty published and the display visibly de-emphasised when untrusted
+- [x] Per-track offsets ±10/50/100 ms + reset, persisted on composite identity
+- [x] Word-level karaoke highlighting, driven by the panel's own frame loop; a
+      line-timed file is labelled line-timed and no word progress is invented
+- [x] Five lyrics layouts (centered, two-line, scrolling, single-word, subtitle)
+- [ ] The remaining four layouts (Dynamic Island, fullscreen cinematic, compact
+      gaming, floating transparent) — these belong with the Phase 5 widget work
+- [ ] `lyricsfile` word timings — see the note in `src-tauri/src/lyrics/mod.rs`:
+      the schema is undocumented and **no record with `hasWordSync: true` could be
+      found on the live API at all**, so it is not implemented on guesswork
 
-- [ ] LRC parser (tags, multi-timestamp lines, malformed input, BOM, CRLF)
-- [ ] Enhanced-LRC word-timestamp parser
-- [ ] LRCLIB `lyricsfile` YAML parser for word timings
-- [ ] LRCLIB client: UA, 400 ms throttle, `429` + `Retry-After` + jitter
-- [ ] Matcher: duration ±2 s, scored title/artist/album, confidence threshold, manual pick
-- [ ] Cache (disk + SQLite)
-- [ ] Playback clock: QPC, interpolation, drift slew, seek/pause/track/rate/stale classification
-- [ ] Uncertainty publication and UI de-emphasis when untrusted
-- [ ] Per-track offsets ±10/50/100 ms + custom, persisted on composite identity
-- [ ] Word-level karaoke highlighting; **line-only lyrics are labelled approximate, never faked**
-- [ ] Nine lyrics layouts, all on the one timing source
+**Exit criteria**
+1. Parsing and matching correct: **VERIFIED** — 171 TypeScript tests, including an
+   end-to-end pipeline test against a real captured LRCLIB response.
+2. Measured sync accuracy against the synthetic timeline: **VERIFIED** — 29 ms mean
+   versus ~497 ms for the naive approach.
+3. Seek, pause and track-change handling: **VERIFIED** by the clock suite.
+4. Offsets persist: **VERIFIED** — stored on the provider-independent offset key.
+5. Provider politeness under load: **VERIFIED live** — `503` from LRCLIB triggered
+   backoff with per-client jitter and the lookup then succeeded.
+6. Lyrics **rendered** for a track that has them: **NOT VERIFIED** — the only live
+   source available was a video with no lyrics, which correctly produced the
+   "no lyrics found" path.
 
-**Exit criteria:** against the synthetic timeline, measured mean sync error and p95 recorded
-as numbers in the phase report; seek and pause handled; offsets survive restart.
+### Findings worth keeping from this phase
 
----
+- **A sign error in the `[offset:]` tag.** `lyricTimeMs` adds offsets to the playback
+  *position*, but `parseOffsetTag` negated the tag as if it were being added to each
+  lyric *timestamp*. Both framings are valid, mixing them is not: any `.lrc` carrying
+  an offset was shifted the wrong way, by twice the intended amount. Caught by the
+  new end-to-end test, not by the 36 existing parser tests, because neither side was
+  wrong in isolation.
+- **Some sources publish a frozen timeline.** Brave reported `LastUpdatedTime`
+  unchanged for 41 minutes with `Position` stuck at 13 ms while a video played.
+  Interpolating from that would confidently show the opening lines of a track three
+  quarters finished, so it is now detected and reported as
+  `TimingConfidence::Unknown`, and the overlay says the source is not reporting
+  position instead of displaying something wrong.
+- **`503 ServerOverloaded` is routine on LRCLIB**, not an edge case. It is handled as
+  a first-class backoff path alongside `429`.
 
 ## Phase 4 — Audio and visualisers  `[ ]`
 

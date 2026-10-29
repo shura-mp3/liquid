@@ -243,16 +243,28 @@ mod tests {
     fn user_agent_identifies_the_app_as_the_provider_requires() {
         let ua = user_agent();
         assert!(ua.starts_with("LIQUID/"), "must name the app: {ua}");
-        assert!(ua.contains("github.com/shura-mp3/liquid"), "must carry a contact: {ua}");
-        assert!(ua.contains(env!("CARGO_PKG_VERSION")), "must carry a version: {ua}");
+        assert!(
+            ua.contains("github.com/shura-mp3/liquid"),
+            "must carry a contact: {ua}"
+        );
+        assert!(
+            ua.contains(env!("CARGO_PKG_VERSION")),
+            "must carry a version: {ua}"
+        );
     }
 
     #[test]
     fn throttle_interval_stays_under_the_published_limit() {
         // ~45 requests/minute generic limit means 1333 ms each if saturated. 400 ms
         // bursts are fine, but the interval must never drop near zero by accident.
-        assert!(MIN_INTERVAL >= Duration::from_millis(200), "too fast for the docs' guidance");
-        assert!(MIN_INTERVAL <= Duration::from_millis(500), "needlessly slow");
+        assert!(
+            MIN_INTERVAL >= Duration::from_millis(200),
+            "too fast for the docs' guidance"
+        );
+        assert!(
+            MIN_INTERVAL <= Duration::from_millis(500),
+            "needlessly slow"
+        );
     }
 
     #[test]
@@ -261,7 +273,10 @@ mod tests {
         for _ in 0..50 {
             let delay = LrclibClient::jitter(base);
             assert!(delay >= base, "jitter must not retry sooner than asked");
-            assert!(delay <= base.mul_f64(1.31), "jitter should stay within ~30%");
+            assert!(
+                delay <= base.mul_f64(1.31),
+                "jitter should stay within ~30%"
+            );
         }
     }
 
@@ -286,6 +301,6 @@ mod tests {
     fn retry_ceiling_is_bounded() {
         // A provider must never be able to park a worker thread indefinitely.
         assert!(MAX_RETRY_AFTER <= Duration::from_secs(60));
-        assert!(MAX_ATTEMPTS <= 5);
+        const { assert!(MAX_ATTEMPTS <= 5) };
     }
 }

@@ -13,6 +13,7 @@ use super::{LyricsError, LyricsOrigin, ResolvedLyrics, Result};
 /// pointless allocation.
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
+#[allow(dead_code)]
 const EXTENSIONS: [&str; 3] = ["lrc", "elrc", "txt"];
 
 /// Read a lyric file the user chose.
@@ -68,8 +69,14 @@ pub fn read_file(path: &Path) -> Result<ResolvedLyrics> {
 
 /// Look for a lyric file beside an audio file: `song.mp3` -> `song.lrc`.
 ///
+/// Not reachable from the current providers: Windows media sessions report metadata
+/// but never a file path, so there is no audio file to look beside. It becomes live
+/// with a local-file provider that knows where the track came from. Kept with its
+/// tests because the dotted-filename case below is easy to get wrong.
+///
 /// Returns the first match in extension order. Case is left to the filesystem, which
 /// on Windows is case-insensitive anyway.
+#[allow(dead_code)]
 pub fn find_beside(audio_path: &Path) -> Option<PathBuf> {
     let stem = audio_path.file_stem()?;
     let dir = audio_path.parent()?;

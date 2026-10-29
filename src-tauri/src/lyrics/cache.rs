@@ -11,7 +11,7 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::{LyricsError, LyricsOrigin, Result, ResolvedLyrics};
+use super::{LyricsError, LyricsOrigin, ResolvedLyrics, Result};
 
 /// How long to remember that a track had no lyrics. Long enough to stop hammering
 /// the provider, short enough that lyrics added later are eventually picked up.
@@ -20,9 +20,12 @@ const NEGATIVE_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 /// Reject absurd payloads rather than storing them.
 const MAX_LYRICS_BYTES: usize = 512 * 1024;
 
-pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
+/// The cache schema.
+///
+/// Exported as a constant so the real database applies it through the versioned
+/// migration list in `storage::settings` while tests can create the same table in an
+/// in-memory connection — one definition, no chance of the two drifting.
+pub const SCHEMA_SQL: &str = r#"
         CREATE TABLE IF NOT EXISTS lyrics_cache (
             offset_key   TEXT PRIMARY KEY NOT NULL,
             text         TEXT,
@@ -37,8 +40,11 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_lyrics_cache_updated
             ON lyrics_cache (updated_at);
-        "#,
-    )
+"#;
+
+#[cfg(test)]
+pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(SCHEMA_SQL)
 }
 
 fn origin_to_str(origin: LyricsOrigin) -> &'static str {
@@ -257,7 +263,10 @@ mod tests {
             params![NEGATIVE_TTL_SECS - 100],
         )
         .unwrap();
-        assert!(matches!(get(&conn, "k").unwrap(), Some(CacheHit::KnownAbsent)));
+        assert!(matches!(
+            get(&conn, "k").unwrap(),
+            Some(CacheHit::KnownAbsent)
+        ));
     }
 
     #[test]

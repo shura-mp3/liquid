@@ -41,14 +41,24 @@ function stripBom(input: string): string {
 }
 
 /**
- * Parse the `[offset:+/-nnn]` tag. LRC convention is milliseconds, and a
- * *positive* offset means the lyrics should appear earlier, so it is negated
- * here to give "ms to add to a lyric timestamp".
+ * Parse the `[offset:+/-nnn]` tag, in milliseconds.
+ *
+ * The LRC convention is `adjustedLineTime = lineTime - offset`, so a **positive**
+ * offset shows lyrics **earlier**. Every offset in LIQUID is applied the equivalent
+ * way round — added to the playback position by `lyricTimeMs` — because shifting one
+ * number beats rewriting every timestamp whenever a slider moves. The two are
+ * identical: `lineTime <= position + offset` is the same test as
+ * `lineTime - offset <= position`.
+ *
+ * So the raw value is returned unchanged. It was previously negated here, which
+ * made sense only under the other framing (adding to each lyric timestamp) and
+ * silently inverted the tag: a file asking for lyrics 500 ms earlier got them
+ * 500 ms late instead.
  */
 function parseOffsetTag(raw: string | undefined): number {
   if (!raw) return 0;
   const n = Number.parseInt(raw.trim(), 10);
-  return Number.isFinite(n) ? -n : 0;
+  return Number.isFinite(n) ? n : 0;
 }
 
 function parseWords(body: string): { words: LyricWord[]; plain: string } {

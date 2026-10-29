@@ -11,6 +11,7 @@ use parking_lot::Mutex;
 
 use std::sync::Arc;
 
+use crate::lyrics::lrclib::LrclibClient;
 use crate::storage::{Settings, SettingsStore};
 use crate::timing::MonotonicClock;
 
@@ -35,6 +36,9 @@ pub struct AppState {
     /// the user rather than both showing as an empty HUD.
     #[cfg(windows)]
     pub media: Mutex<Option<GsmtcBridge>>,
+    /// Shared so a blocking lookup can take a clone onto a worker thread while the
+    /// request throttle stays global rather than per-caller.
+    pub lyrics_client: Arc<LrclibClient>,
     last_click_through_change: Mutex<Option<Instant>>,
     /// Root for the database, logs and the lyrics cache. Held here so Phase 3's
     /// lyrics cache and Phase 7's history export resolve paths from one place rather
@@ -52,6 +56,7 @@ impl AppState {
             clock: Arc::new(MonotonicClock::new()),
             #[cfg(windows)]
             media: Mutex::new(None),
+            lyrics_client: Arc::new(LrclibClient::new()),
             last_click_through_change: Mutex::new(None),
             data_dir,
         }

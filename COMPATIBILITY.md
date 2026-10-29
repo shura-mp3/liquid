@@ -102,6 +102,7 @@ explicitly; unavailable controls are rendered disabled with a reason, never as d
 | Sessions without a title exist | Published by apps that are not really playing anything. Treated as no session rather than rendered as an empty widget. |
 | Thumbnail content types are unreliable | Sources report them inconsistently or leave them empty, and a data URL with the wrong MIME silently fails to render. The bytes are sniffed instead. |
 | Artwork reads are blocking WinRT I/O | Fetched once per track on the bridge thread, never lazily from a command, which would stall the UI thread. |
+| **Some sources publish a frozen timeline** | Brave kept `LastUpdatedTime` unchanged for 41 minutes with `Position` stuck at 13 ms while a video played. The position is not merely imprecise, it is not advancing, so interpolation would confidently show the wrong line. Detected and reported as `TimingConfidence::Unknown`; the overlay states that the source does not report position rather than syncing to a lie. |
 
 ---
 
@@ -204,6 +205,16 @@ LRCLIB integration details, taken from its published docs:
 - `instrumental: true` records are honoured as "no lyrics", not treated as a failure.
 - The docs page states no explicit licence or attribution text; LIQUID therefore attributes
   LRCLIB visibly on every fetched lyric, and caches rather than re-requesting.
+
+**Verified against the live API in Phase 3:**
+
+| Finding | Detail |
+|---|---|
+| `503 ServerOverloaded` is routine | Returned repeatedly during development and again during live testing. Handled as a first-class backoff case alongside `429`, with jitter — observed recovering after two attempts and then answering correctly. |
+| **Word-synced records appear not to exist in practice** | `hasWordSync: true` was not found on a single record across several searches of popular tracks. Word-level karaoke therefore comes from Enhanced LRC in local and user-authored files, a verified format, rather than from LRCLIB. |
+| `lyricsfile` schema is only partly documented | Observed v1.0 carries `lines[].text/start_ms/end_ms` — richer than LRC, which has no line end times. Word timings are documented only as `lines[].words` with no stated shape. Not implemented on guesswork; `syncedLyrics` (plain LRC) is used instead. |
+| Provider emits a leading space after each timestamp | `[00:00.15] Is this...`. A parser that kept it would indent every line. |
+| Negative caching is necessary, not an optimisation | Without it a track with no lyrics would query a free rate-limited service on every play, forever. |
 
 **Translation/romanization:** machine output is always labelled as machine-generated, and
 nothing is sent to a third-party service without explicit per-provider opt-in.

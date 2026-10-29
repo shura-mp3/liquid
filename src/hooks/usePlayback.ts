@@ -62,6 +62,15 @@ export function toObservation(snapshot: PlaybackSnapshot, nowMs: number): Playba
   };
 }
 
+/**
+ * Reads the interpolated clock on demand.
+ *
+ * Exists so a component that genuinely needs per-frame precision (word-level lyric
+ * highlighting) can pull the position inside its own animation loop, instead of the
+ * position being pushed through React state and re-rendering the whole overlay.
+ */
+export type PlaybackClockReader = () => ClockReading | null;
+
 export interface PlaybackView {
   snapshot: PlaybackSnapshot | null;
   sessions: SessionSummary[];
@@ -74,6 +83,7 @@ export interface PlaybackView {
   /** Key for the per-track lyric offset, stable across providers. */
   offsetKey: string | null;
   lastDiscontinuity: Discontinuity | null;
+  reader: PlaybackClockReader;
 }
 
 export function usePlayback(globalOffsetMs = 0, perTrackOffsetMs = 0): PlaybackView {
@@ -178,7 +188,15 @@ export function usePlayback(globalOffsetMs = 0, perTrackOffsetMs = 0): PlaybackV
       })
     : null;
 
+  // Stable identity: components use it as an effect dependency, so it must not
+  // change every render or their animation loops would restart constantly.
+  const reader = useCallback<PlaybackClockReader>(
+    () => (clock.current.hasBasis ? clock.current.read(performance.now()) : null),
+    [],
+  );
+
   return {
+    reader,
     snapshot,
     sessions,
     status,

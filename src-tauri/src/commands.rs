@@ -126,6 +126,159 @@ pub fn media_seek(state: State<'_, AppState>, position_ms: u64) -> Result<(), St
     }
 }
 
+// ---------------------------------------------------------------------------
+// Lyrics
+// ---------------------------------------------------------------------------
+
+use crate::lyrics::{
+    local as lyrics_local, service as lyrics_service, LyricsCandidate, LyricsOrigin, LyricsQuery,
+    ResolvedLyrics,
+};
+
+/// What LIQUID has for a track: a cached answer, or candidates to score.
+///
+/// The network call runs on a blocking worker, never on the thread serving the
+/// webview — a 12-second HTTP timeout on the UI thread would freeze the overlay.
+#[tauri::command]
+pub async fn lyrics_lookup(
+    state: State<'_, AppState>,
+    query: LyricsQuery,
+    offset_key: String,
+) -> Result<lyrics_service::LookupResult, String> {
+    tracing::debug!(title = %query.title, %offset_key, "lyrics: lookup requested");
+
+    // 1. Cache first. Cheap, and it is what keeps a free rate-limited service from
+    //    being asked again for every play of the same track.
+    {
+        let store = state.store.lock();
+        match lyrics_service::lookup_cached(store.connection(), &offset_key) {
+            Ok(Some(hit)) => return Ok(hit),
+            Ok(None) => {}
+            Err(e) => tracing::warn!(error = %e, "lyrics cache read failed"),
+        }
+    }
+
+    // 2. Respect the user's choice before reaching the network at all.
+    if !state.settings.lock().lyrics_online_lookup {
+        return Ok(lyrics_service::LookupResult {
+            resolved: None,
+            known_absent: false,
+            candidates: Vec::new(),
+            provider_error: Some("Online lyrics lookup is turned off in Settings → Lyrics.".into()),
+        });
+    }
+
+    tracing::info!(title = %query.title, artist = ?query.artist, "lyrics: asking provider");
+
+    let client = std::sync::Arc::clone(&state.lyrics_client);
+    let candidates = tauri::async_runtime::spawn_blocking(move || {
+        lyrics_service::fetch_candidates(&client, &query)
+    })
+    .await
+    .map_err(|e| format!("lyrics worker failed: {e}"))?;
+
+    match candidates {
+        Ok(candidates) => {
+            tracing::info!(count = candidates.len(), "lyrics: provider replied");
+            Ok(lyrics_service::LookupResult {
+                resolved: None,
+                known_absent: false,
+                candidates,
+                provider_error: None,
+            })
+        }
+        // A provider failure is reported as itself. Showing "no lyrics" for a
+        // network error would be a lie the user cannot act on.
+        Err(e) => {
+            tracing::warn!(error = %e, "lyrics: provider failed");
+            Ok(lyrics_service::LookupResult {
+                resolved: None,
+                known_absent: false,
+                candidates: Vec::new(),
+                provider_error: Some(e.to_string()),
+            })
+        }
+    }
+}
+
+/// Store the candidate the frontend's matcher chose.
+#[tauri::command]
+pub fn lyrics_accept(
+    state: State<'_, AppState>,
+    offset_key: String,
+    candidate: LyricsCandidate,
+) -> Result<ResolvedLyrics, String> {
+    let store = state.store.lock();
+    lyrics_service::accept(store.connection(), &offset_key, &candidate).map_err(|e| e.to_string())
+}
+
+/// Record that this track genuinely has no lyrics.
+#[tauri::command]
+pub fn lyrics_accept_absent(state: State<'_, AppState>, offset_key: String) -> Result<(), String> {
+    let store = state.store.lock();
+    lyrics_service::accept_absent(store.connection(), &offset_key).map_err(|e| e.to_string())
+}
+
+/// Import a `.lrc` the user picked. Local files win over anything fetched.
+#[tauri::command]
+pub fn lyrics_import_file(
+    state: State<'_, AppState>,
+    offset_key: String,
+    path: String,
+) -> Result<ResolvedLyrics, String> {
+    let loaded = lyrics_local::read_file(std::path::Path::new(&path)).map_err(|e| e.to_string())?;
+    let store = state.store.lock();
+    lyrics_service::accept_local(store.connection(), &offset_key, loaded).map_err(|e| e.to_string())
+}
+
+/// Save text from the editor as this track's lyrics.
+#[tauri::command]
+pub fn lyrics_save_edited(
+    state: State<'_, AppState>,
+    offset_key: String,
+    text: String,
+) -> Result<ResolvedLyrics, String> {
+    let edited = ResolvedLyrics {
+        text,
+        origin: LyricsOrigin::UserEdited,
+        instrumental: false,
+        provider_id: None,
+        attribution: None,
+    };
+    let store = state.store.lock();
+    lyrics_service::accept_local(store.connection(), &offset_key, edited).map_err(|e| e.to_string())
+}
+
+/// Drop whatever is cached for a track, so the next lookup starts fresh.
+#[tauri::command]
+pub fn lyrics_forget(state: State<'_, AppState>, offset_key: String) -> Result<(), String> {
+    let store = state.store.lock();
+    crate::lyrics::cache::forget(store.connection(), &offset_key).map_err(|e| e.to_string())
+}
+
+/// Per-track lyric offset in ms. It is added to the playback position, so a
+/// **positive** value shows lyrics earlier and a negative one shows them later.
+#[tauri::command]
+pub fn get_lyric_offset(state: State<'_, AppState>, offset_key: String) -> i64 {
+    state.store.lock().lyrics_offset(&offset_key).unwrap_or(0)
+}
+
+#[tauri::command]
+pub fn set_lyric_offset(
+    state: State<'_, AppState>,
+    offset_key: String,
+    offset_ms: i64,
+) -> Result<(), String> {
+    // Bound it: an offset larger than any plausible track is a mistake, and it would
+    // park every lyric off the end of the timeline with no obvious way back.
+    let clamped = offset_ms.clamp(-30_000, 30_000);
+    state
+        .store
+        .lock()
+        .set_lyrics_offset(&offset_key, clamped)
+        .map_err(|e| format!("could not save the offset: {e}"))
+}
+
 /// Force an immediate re-read of the media sessions.
 ///
 /// The bridge is event-driven with a slow tick, so a source that publishes a session
@@ -408,6 +561,10 @@ pub struct Diagnostics {
     pub artwork_cached: bool,
     /// Entries held by the bounded artwork cache, so growth is visible.
     pub artwork_cache_entries: usize,
+    /// Rows in the lyrics cache. Surfaced because this one is deliberately
+    /// unbounded in size (it is small text, on disk, and the whole point is to stop
+    /// re-querying a free service) — so it should at least be observable.
+    pub lyrics_cache_entries: i64,
 }
 
 #[tauri::command]
@@ -449,6 +606,7 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Diagnostics {
             #[cfg(not(windows))]
             0
         },
+        lyrics_cache_entries: crate::lyrics::cache::entry_count(state.store.lock().connection()),
     }
 }
 

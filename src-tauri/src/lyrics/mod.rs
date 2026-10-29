@@ -45,6 +45,7 @@ use serde::{Deserialize, Serialize};
 pub mod cache;
 pub mod local;
 pub mod lrclib;
+pub mod service;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LyricsError {
@@ -63,8 +64,6 @@ pub enum LyricsError {
     },
     #[error("database error: {0}")]
     Db(String),
-    #[error("online lyrics lookup is disabled in settings")]
-    LookupDisabled,
     #[error("{0}")]
     Invalid(String),
 }

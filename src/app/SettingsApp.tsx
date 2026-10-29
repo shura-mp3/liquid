@@ -519,6 +519,8 @@ export function SettingsApp() {
                 {diag.artworkCached ? 'cached for the current track' : 'none for the current track'}
                 {` · ${diag.artworkCacheEntries} in cache (bounded)`}
               </dd>
+              <dt>Lyrics cache</dt>
+              <dd>{diag.lyricsCacheEntries} track{diag.lyricsCacheEntries === 1 ? '' : 's'}</dd>
             </dl>
             <p className="lq-muted">
               Logs are written to the LIQUID folder in your app-data directory. They stay on

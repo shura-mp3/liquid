@@ -135,6 +135,50 @@ export interface PlaybackEvent {
   sessions: SessionSummary[];
 }
 
+// ---------------------------------------------------------------------------
+// Lyrics
+// ---------------------------------------------------------------------------
+
+export type LyricsOrigin = 'cache' | 'lrclib' | 'local-file' | 'user-edited';
+
+/** Mirrors `LyricsCandidate` in core/matcher.ts, so no translation layer is needed. */
+export interface LyricsCandidate {
+  id: number;
+  trackName: string;
+  artistName: string;
+  albumName?: string;
+  duration?: number;
+  instrumental: boolean;
+  hasWordSync: boolean;
+  syncedLyrics?: string;
+  plainLyrics?: string;
+}
+
+export interface ResolvedLyrics {
+  /** Raw LRC, parsed here rather than natively — one parser, exhaustively tested. */
+  text: string;
+  origin: LyricsOrigin;
+  instrumental: boolean;
+  providerId?: number;
+  attribution: string | null;
+}
+
+export interface LyricsLookupResult {
+  resolved: ResolvedLyrics | null;
+  /** Previously checked and genuinely none — not the same as "none found today". */
+  knownAbsent: boolean;
+  candidates: LyricsCandidate[];
+  /** Provider unreachable. Reported as itself, never disguised as "no lyrics". */
+  providerError: string | null;
+}
+
+export interface LyricsQuery {
+  title: string;
+  artist: string | null;
+  album: string | null;
+  durationMs: number | null;
+}
+
 export interface Diagnostics {
   appVersion: string;
   monotonicClockDegraded: boolean;
@@ -145,6 +189,7 @@ export interface Diagnostics {
   mediaSession: string;
   artworkCached: boolean;
   artworkCacheEntries: number;
+  lyricsCacheEntries: number;
 }
 
 export const ipc = {
@@ -176,6 +221,21 @@ export const ipc = {
   mediaSeek: (positionMs: number) => invoke<void>('media_seek', { positionMs }),
   getArtwork: (key: string) => invoke<string | null>('get_artwork', { key }),
   refreshMediaSessions: () => invoke<void>('refresh_media_sessions'),
+
+  lyricsLookup: (query: LyricsQuery, offsetKey: string) =>
+    invoke<LyricsLookupResult>('lyrics_lookup', { query, offsetKey }),
+  lyricsAccept: (offsetKey: string, candidate: LyricsCandidate) =>
+    invoke<ResolvedLyrics>('lyrics_accept', { offsetKey, candidate }),
+  lyricsAcceptAbsent: (offsetKey: string) =>
+    invoke<void>('lyrics_accept_absent', { offsetKey }),
+  lyricsImportFile: (offsetKey: string, path: string) =>
+    invoke<ResolvedLyrics>('lyrics_import_file', { offsetKey, path }),
+  lyricsSaveEdited: (offsetKey: string, text: string) =>
+    invoke<ResolvedLyrics>('lyrics_save_edited', { offsetKey, text }),
+  lyricsForget: (offsetKey: string) => invoke<void>('lyrics_forget', { offsetKey }),
+  getLyricOffset: (offsetKey: string) => invoke<number>('get_lyric_offset', { offsetKey }),
+  setLyricOffset: (offsetKey: string, offsetMs: number) =>
+    invoke<void>('set_lyric_offset', { offsetKey, offsetMs }),
 };
 
 /**

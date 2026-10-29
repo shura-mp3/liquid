@@ -4,7 +4,7 @@ A Liquid Glass music visualiser and live-lyrics HUD for Windows 10 — an always
 widget-based overlay that reads playback state from Windows media sessions and drives
 audio-reactive visuals from the system audio mix.
 
-**Status: in development.** Phases 0-2 of
+**Status: in development.** Phases 0-3 of
 [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) are done. The sections below say
 exactly what works today and what does not, because a screenshot of a HUD with
 placeholder text in it is not a feature.
@@ -26,17 +26,18 @@ placeholder text in it is not a feature.
 | Settings in SQLite with schema validation and versioned migrations | working |
 | Launch at login (per-user, no admin) | working |
 | Diagnostics panel reading real OS state | working |
-| LRC / Enhanced-LRC parsing, playback clock, matcher, offsets | **built and tested; the clock now runs on live playback, but no lyrics provider is wired yet** |
+| Synchronised lyrics: LRCLIB lookup, caching, matching, per-track offsets, 5 layouts | working |
+| Word-level karaoke from Enhanced LRC | implemented; **no word-synced source was found on LRCLIB to test it against** |
 | Music source detection via Windows media sessions (Spotify, browsers, local players) | working — real metadata, artwork, capabilities, arbitration, pinning, transport |
 | WASAPI audio capture and FFT visualisers | **not implemented — Phase 4** |
 | Dynamic Island, particles, ripples, album-adaptive tinting | **not implemented — Phase 5** |
 | Browser extension, lyrics editor, translation, history, OBS output | **not implemented — Phases 6–7** |
 | Installer | **not implemented — Phase 8** |
 
-The Now playing panel shows real data from the Windows media session. The lyrics panel
-is explicitly labelled as awaiting its provider — the timing engine runs against live
-playback and shows its real numbers, but nothing resolves lyrics for a track yet. There
-is no fake "now playing" and no fake spectrum data anywhere.
+The Now playing panel and the lyrics panel both show real data. A line-timed lyric file
+is labelled line-timed rather than dressed up as karaoke, and when a source does not
+report its playback position the panel says so instead of syncing to a wrong number.
+There is no fake "now playing" and no fake spectrum data anywhere.
 
 ---
 

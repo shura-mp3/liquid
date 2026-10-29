@@ -29,12 +29,13 @@ pub enum SettingsError {
 type Result<T> = std::result::Result<T, SettingsError>;
 
 /// The current schema version. Bump this and add a step in `MIGRATIONS`.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 /// Forward-only migrations, applied in order for any version above the stored one.
-const MIGRATIONS: &[(i64, &str)] = &[(
-    1,
-    r#"
+const MIGRATIONS: &[(i64, &str)] = &[
+    (
+        1,
+        r#"
     CREATE TABLE IF NOT EXISTS user_settings (
         key        TEXT PRIMARY KEY NOT NULL,
         value      TEXT NOT NULL,
@@ -64,7 +65,10 @@ const MIGRATIONS: &[(i64, &str)] = &[(
         updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
     "#,
-)];
+    ),
+    // Phase 3. The DDL lives in the lyrics module so the cache owns its own schema.
+    (2, crate::lyrics::cache::SCHEMA_SQL),
+];
 
 /// Glass appearance parameters. All continuous so they can be bound to sliders.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -118,6 +122,11 @@ pub struct Settings {
     /// choice is informed rather than hidden.
     pub spotify_audio_reactive_visuals: bool,
     pub history_enabled: bool,
+    /// Whether LIQUID may ask LRCLIB for lyrics. On by default because lyrics are
+    /// the point of the app and the About panel says where they come from, but it
+    /// is a network request carrying the track title and artist, so it is one
+    /// switch away.
+    pub lyrics_online_lookup: bool,
     pub glass: GlassSettings,
     pub hotkeys: std::collections::BTreeMap<String, String>,
 }
@@ -143,6 +152,7 @@ impl Default for Settings {
             global_offset_ms: 0,
             spotify_audio_reactive_visuals: true,
             history_enabled: true,
+            lyrics_online_lookup: true,
             glass: GlassSettings::default(),
             hotkeys,
         }
@@ -208,6 +218,13 @@ impl SettingsStore {
         };
         store.migrate()?;
         Ok(store)
+    }
+
+    /// The underlying connection, for modules that own their own tables (the
+    /// lyrics cache). Guarded by the same mutex that guards this store, so callers
+    /// already hold exclusive access.
+    pub fn connection(&self) -> &Connection {
+        &self.conn
     }
 
     fn current_version(&self) -> Result<i64> {
@@ -313,10 +330,7 @@ impl SettingsStore {
         Ok(())
     }
 
-    /// Per-track lyric offset storage. Exercised by the tests below; the lyrics engine
-    /// that calls it lands in Phase 3, so the schema and the accessors are in place
-    /// first rather than bolted on later.
-    #[allow(dead_code)]
+    /// Per-track lyric offset storage.
     pub fn set_lyrics_offset(&self, offset_key: &str, offset_ms: i64) -> Result<()> {
         self.conn.execute(
             "INSERT INTO lyrics_offsets (offset_key, offset_ms, updated_at)
@@ -327,7 +341,6 @@ impl SettingsStore {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn lyrics_offset(&self, offset_key: &str) -> Option<i64> {
         self.conn
             .query_row(
@@ -386,6 +399,37 @@ mod tests {
         }
         let store = SettingsStore::open(&path).unwrap();
         assert_eq!(store.load().theme, "liquid-aurora");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn migrations_are_listed_in_ascending_order() {
+        // They are applied in array order, so a list out of order would run a later
+        // migration first and then leave user_version wrong. Cheap to assert.
+        let versions: Vec<i64> = MIGRATIONS.iter().map(|(v, _)| *v).collect();
+        let mut sorted = versions.clone();
+        sorted.sort_unstable();
+        assert_eq!(versions, sorted, "MIGRATIONS must be in ascending order");
+        assert_eq!(
+            versions.last().copied(),
+            Some(SCHEMA_VERSION),
+            "SCHEMA_VERSION must match the last migration"
+        );
+    }
+
+    #[test]
+    fn the_lyrics_cache_table_exists_after_migration() {
+        let path = temp_db("lyricscache");
+        let store = SettingsStore::open(&path).unwrap();
+        let count: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='lyrics_cache'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "migration v2 did not create lyrics_cache");
         let _ = std::fs::remove_file(&path);
     }
 

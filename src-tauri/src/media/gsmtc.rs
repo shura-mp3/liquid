@@ -636,15 +636,39 @@ fn read_snapshot(session: &Session, clock: &MonotonicClock) -> Result<PlaybackSn
             let updated_unix_ms =
                 (dt.UniversalTime - TICKS_1601_TO_1970) as f64 / TICKS_PER_MS as f64;
             let age_ms = wall_clock_ms() - updated_unix_ms;
+            tracing::debug!(
+                ticks = dt.UniversalTime,
+                updated_unix_ms,
+                age_ms,
+                "timeline LastUpdatedTime"
+            );
             if age_ms.is_finite() && (0.0..=MAX_BACKDATE_MS).contains(&age_ms) {
                 (now_mono - age_ms, TimingConfidence::Exact)
+            } else if age_ms.is_finite() && age_ms > MAX_BACKDATE_MS {
+                // The source published a timeline once and has not touched it since.
+                // Observed in the wild: Brave kept `LastUpdatedTime` fixed for 41
+                // minutes while a video played, with `Position` frozen at 13 ms.
+                //
+                // This is NOT merely "less precise". The position is not advancing at
+                // all, so interpolating from it would confidently show the opening
+                // lyrics of a track that is three quarters finished. Reported as
+                // `Unknown` so the UI can say the source does not report position,
+                // rather than quietly displaying something wrong.
+                (now_mono, TimingConfidence::Unknown)
             } else {
-                // Clock skew, or a source that stopped updating. Do not fabricate a
-                // basis in the distant past; use now and say we are less sure.
+                // Negative or non-finite: clock skew between the source's wall clock
+                // and ours. The position itself is probably fine, just unanchorable.
                 (now_mono, TimingConfidence::Coarse)
             }
         }
-        _ => (now_mono, TimingConfidence::Coarse),
+        Ok(dt) => {
+            tracing::debug!(ticks = dt.UniversalTime, "timeline has no LastUpdatedTime");
+            (now_mono, TimingConfidence::Coarse)
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, "LastUpdatedTime unavailable");
+            (now_mono, TimingConfidence::Coarse)
+        }
     };
 
     let source_app = source_app_of(session).ok().filter(|s| !s.is_empty());

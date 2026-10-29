@@ -261,6 +261,58 @@ Brave tab, then check Settings → Music sources and the overlay's timing readou
 
 ---
 
+## P9 — Lyrics (Phase 3)
+
+### P9.1 Lyrics appear for a track that has them
+1. Play a reasonably well-known song in Spotify or a browser.
+2. **Pass:** the lyrics panel fills, the active line is highlighted and advances in
+   time with the music, and "Lyrics from LRCLIB" is credited in the footer.
+
+### P9.2 A line-timed file is not dressed up as karaoke
+**Pass:** the footer reads `line-timed (approximate within a line)` and no per-word
+highlight sweeps across the active line. Word highlighting may only appear when the
+footer reads `word-timed`.
+
+### P9.3 Offsets
+1. Nudge the offset with the ±10/50/100 ms buttons.
+2. **Pass:** lyrics shift immediately, **positive moves them earlier**.
+3. Restart LIQUID. **Pass:** the offset is still applied to that track.
+4. Play the same song from a different app. **Pass:** the offset still applies — the
+   key deliberately excludes the provider.
+
+### P9.4 A track with no lyrics
+**Pass:** "No lyrics found for this track", not an error and not a spinner forever.
+Play it again — **Pass:** no second network request (the absence is cached).
+
+### P9.5 Ambiguous matches are offered, not guessed
+Play a track with several similarly-named recordings.
+**Pass:** when nothing is confident enough, a short list of candidates with match
+percentages appears instead of one being applied silently.
+
+### P9.6 A live or remixed version does not inherit studio lyrics
+Play a live recording whose title says so.
+**Pass:** studio lyrics are refused — either nothing, or a candidate list to choose
+from. This is the single worst failure mode in a lyrics app.
+
+### P9.7 A source that does not report position
+Some browser sources publish a frozen timeline.
+**Pass:** the panel states that the source is not reporting playback position rather
+than highlighting a wrong line.
+
+### Run 2026-10-29 (d) — Phase 3
+
+| Check | Result | Evidence |
+|---|---|---|
+| LRCLIB reachable, correct politeness headers | **PASS** | Live lookup succeeded with the required User-Agent. |
+| `503` backoff with jitter | **PASS (live)** | `backing off status=503 attempt=1 delay_ms=1036`, `attempt=2 delay_ms=1160`, then `provider replied` — recovered rather than failing. |
+| "No lyrics" path | **PASS (live)** | A video with no lyrics returned `count=0` and the panel showed the absent state. |
+| Frozen-timeline detection | **PASS (live)** | Brave held `LastUpdatedTime` for 41 min with `Position` at 13 ms; reported as `timing=Unknown`. |
+| Parse + match + clock pipeline | **PASS** | 17-test end-to-end suite against a real captured LRCLIB record. |
+| `[offset:]` tag direction | **PASS** | Regression test added after a real sign bug was found. |
+| **Lyrics rendered for a track that has them** | **NOT VERIFIED** | No music with lyrics was playing during testing; only a video. P9.1–P9.3, P9.5, P9.6 need a real song. |
+
+---
+
 ### Correction to the first Phase 1 run
 
 The original Phase 1 evidence below was gathered by launching the **debug binary

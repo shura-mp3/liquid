@@ -64,11 +64,23 @@ describe('parseLrc — structure', () => {
     expect(r.tags).toMatchObject({ ti: 'Title', ar: 'Artist', al: 'Album' });
   });
 
-  it('negates the offset tag so it means "ms to add to a lyric time"', () => {
-    // LRC convention: positive offset = show lyrics earlier.
-    expect(parseLrc('[offset:+500]\n[00:10.00]x').fileOffsetMs).toBe(-500);
-    expect(parseLrc('[offset:-250]\n[00:10.00]x').fileOffsetMs).toBe(250);
+  it('keeps the offset tag in the sense the rest of the engine uses', () => {
+    // LRC convention is adjustedLineTime = lineTime - offset, i.e. a positive
+    // offset shows lyrics earlier. LIQUID applies offsets by adding to the playback
+    // position instead, which is the same comparison, so the raw value carries over
+    // unchanged. Negating it here would invert every file that sets the tag.
+    expect(parseLrc('[offset:+500]\n[00:10.00]x').fileOffsetMs).toBe(500);
+    expect(parseLrc('[offset:-250]\n[00:10.00]x').fileOffsetMs).toBe(-250);
     expect(parseLrc('[00:10.00]x').fileOffsetMs).toBe(0);
+  });
+
+  it('applies the offset tag in the direction the convention requires', () => {
+    // A file asking for lyrics 500 ms earlier must light its line 500 ms sooner.
+    const withTag = parseLrc('[offset:+500]\n[00:10.00]line');
+    const line = withTag.lines[0]!;
+    const atMs = line.timeMs - 300; // 300 ms before the raw timestamp
+    expect(activeLineIndex(withTag.lines, atMs)).toBe(-1);
+    expect(activeLineIndex(withTag.lines, atMs + withTag.fileOffsetMs)).toBe(0);
   });
 
   it('reports a plain lyrics file as plain, not as broken', () => {
