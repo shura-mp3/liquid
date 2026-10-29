@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { emit } from '@tauri-apps/api/event';
 
+import { usePlayback } from '../hooks/usePlayback';
 import {
   applyGlassToDom,
   ipc,
@@ -21,6 +22,7 @@ import {
 
 type SectionId =
   | 'general'
+  | 'sources'
   | 'glass'
   | 'overlays'
   | 'monitors'
@@ -30,6 +32,7 @@ type SectionId =
 
 const SECTIONS: Array<{ id: SectionId; label: string; ready: boolean }> = [
   { id: 'general', label: 'General', ready: true },
+  { id: 'sources', label: 'Music sources', ready: true },
   { id: 'glass', label: 'Liquid Glass', ready: true },
   { id: 'overlays', label: 'Overlays', ready: true },
   { id: 'monitors', label: 'Monitors', ready: true },
@@ -39,7 +42,6 @@ const SECTIONS: Array<{ id: SectionId; label: string; ready: boolean }> = [
 ];
 
 const PENDING: Array<{ label: string; phase: string }> = [
-  { label: 'Music sources', phase: 'Phase 2 — Windows media sessions' },
   { label: 'Lyrics', phase: 'Phase 3 — engine built and tested, not yet wired to a provider' },
   { label: 'Audio capture', phase: 'Phase 4 — WASAPI loopback' },
   { label: 'Visualisers', phase: 'Phase 4 — needs real audio first' },
@@ -270,6 +272,8 @@ export function SettingsApp() {
             </div>
           </Panel>
         )}
+
+        {section === 'sources' && <SourcesPanel />}
 
         {section === 'glass' && (
           <Panel
@@ -510,6 +514,11 @@ export function SettingsApp() {
               <dd className="lq-muted">{diag.mediaSession}</dd>
               <dt>Audio capture</dt>
               <dd className="lq-muted">{diag.audioCapture}</dd>
+              <dt>Artwork</dt>
+              <dd>
+                {diag.artworkCached ? 'cached for the current track' : 'none for the current track'}
+                {` · ${diag.artworkCacheEntries} in cache (bounded)`}
+              </dd>
             </dl>
             <p className="lq-muted">
               Logs are written to the LIQUID folder in your app-data directory. They stay on
@@ -551,6 +560,137 @@ export function SettingsApp() {
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * Music sources. Everything here is read back from the Windows media session
+ * service, including the capability flags, so a disabled control reflects what the
+ * source actually said rather than what we hope it supports.
+ */
+function SourcesPanel() {
+  const playback = usePlayback();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const pin = (sourceApp: string | null) => {
+    setBusy(sourceApp ?? 'clear');
+    ipc
+      .setPinnedSource(sourceApp)
+      .catch((e) => console.error(e))
+      .finally(() => setBusy(null));
+  };
+
+  const caps = playback.snapshot?.controls;
+  const bridgeDown = playback.status?.bridgeRunning === false;
+
+  return (
+    <Panel
+      title="Music sources"
+      subtitle="Read from Windows media sessions — the same facility that drives the volume-key popup. No streaming-service API is involved."
+    >
+      {bridgeDown && (
+        <div className="lq-banner lq-banner--error">{playback.status?.error}</div>
+      )}
+
+      <div className="lq-field">
+        <div className="lq-field__text">
+          <span>Active source</span>
+          <small>
+            {playback.snapshot
+              ? `${playback.snapshot.title}${playback.snapshot.artist ? ` — ${playback.snapshot.artist}` : ''}`
+              : 'Nothing is playing right now.'}
+          </small>
+        </div>
+        <span className="lq-pill" data-state={playback.snapshot?.status ?? 'none'}>
+          {playback.snapshot?.status ?? 'idle'}
+        </span>
+      </div>
+
+      <div className="lq-row-end">
+        <button
+          type="button"
+          className="lq-btn lq-btn--ghost"
+          onClick={() => ipc.refreshMediaSessions().catch((e) => console.error(e))}
+        >
+          Refresh sessions
+        </button>
+      </div>
+
+      <h3 className="lq-subhead">Detected sessions</h3>
+      {playback.sessions.length === 0 ? (
+        <p className="lq-muted">
+          No application is currently publishing a media session. Start playback in
+          Spotify, a browser or any local player and it will appear here.
+        </p>
+      ) : (
+        <table className="lq-table">
+          <thead>
+            <tr>
+              <th>Application</th>
+              <th>Track</th>
+              <th>State</th>
+              <th>Follow</th>
+            </tr>
+          </thead>
+          <tbody>
+            {playback.sessions.map((s) => (
+              <tr key={s.sourceApp}>
+                <td>
+                  {s.displayName}
+                  {s.isCurrent && <span className="lq-tag">system current</span>}
+                </td>
+                <td>{s.title ?? <span className="lq-muted">no metadata</span>}</td>
+                <td>{s.status}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="lq-btn lq-btn--ghost"
+                    disabled={busy !== null}
+                    onClick={() => pin(s.isPinned ? null : s.sourceApp)}
+                  >
+                    {s.isPinned ? 'Unpin' : 'Pin'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h3 className="lq-subhead">Reported capabilities</h3>
+      {caps ? (
+        <div className="lq-caps">
+          {(
+            [
+              ['play', caps.play],
+              ['pause', caps.pause],
+              ['next', caps.next],
+              ['previous', caps.previous],
+              ['seek', caps.seek],
+              ['volume', caps.volume],
+            ] as const
+          ).map(([name, ok]) => (
+            <span key={name} className="lq-cap" data-ok={ok}>
+              {name}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="lq-muted">No active source to report capabilities for.</p>
+      )}
+      <p className="lq-muted">
+        These come from the source, not from LIQUID. Browsers commonly expose
+        next/previous but not seek, and Windows media sessions expose no volume
+        control at all — so that one is always off. Controls LIQUID cannot use are
+        disabled with the reason in their tooltip rather than silently doing nothing.
+      </p>
+
+      <div className="lq-note">
+        <strong>About Spotify.</strong> LIQUID integrates no Spotify API, SDK or
+        endpoint, and there is no sign-in. Spotify appears here only because the
+        desktop app publishes a Windows media session like any other player.
+      </div>
+    </Panel>
   );
 }
 

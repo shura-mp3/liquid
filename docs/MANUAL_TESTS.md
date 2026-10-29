@@ -195,6 +195,72 @@ Enable Windows *Show animations* off / `prefers-reduced-motion`.
 
 ## P7 — Results log
 
+## P8 — Media sessions (Phase 2)
+
+### P8.1 Real metadata from a real application
+1. Play something in Spotify, a browser, or any local player.
+2. Open Settings → Music sources.
+3. **Pass:** the application is listed, the track title and artist match, and the
+   overlay's Now playing panel shows the same.
+
+### P8.2 Capabilities are read, not assumed
+1. With a source playing, open Settings → Music sources → Reported capabilities.
+2. **Pass:** the flags match what that source genuinely supports. A hard-coded
+   implementation shows all six lit; a correct one does not.
+3. Use `tests/fixtures/media-session.html` for the decisive case: it registers
+   play/pause/next/previous but **not** `seekto`, so seek must read as unavailable and
+   the overlay's progress bar must not be clickable.
+   **Note:** the fixture must be started with a real click. Chromium only publishes a
+   media session to Windows after a genuine user gesture, so this check cannot be
+   automated end to end.
+
+### P8.3 Back-dated timing
+1. With a source **playing**, check the overlay's timing readout.
+2. **Pass:** `Source timing` reads `exact`, meaning `LastUpdatedTime` was used to
+   back-date the observation. A long-paused source correctly reads `coarse`, because
+   its last sample is genuinely old.
+
+### P8.4 Artwork
+**Pass:** album art appears for a track that has it, and the diagnostics panel shows a
+bounded cache count that does not grow without limit over a long listening session.
+
+### P8.5 Arbitration
+1. Play in one application, pause another.
+2. **Pass:** LIQUID follows the playing one. Pin the paused one in Settings →
+   **Pass:** LIQUID follows the pinned source even though it is paused.
+
+### P8.6 Transport controls
+**Pass:** play/pause/next work where the source advertises them; a control the source
+does not advertise is disabled and its tooltip explains why.
+
+---
+
+### Run 2026-10-29 (c) — Phase 2, media sessions
+
+Observed against the machine's **live** media sessions, not a mock.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Session manager acquired | **PASS** | `media session manager acquired` |
+| Real metadata from a real application | **PASS** | Brave, playing a YouTube mix: title `Chill Cool Vibes for Chill Cool People // Tyler, The Creator // Mac Miller // The Marías & More`, artist `Ammafari Music Jams`, duration `3924581 ms` (65 min), position `842275 ms`. |
+| Optional fields stay optional | **PASS** | Same session reported `album=None` — rendered as absent, not as filler. |
+| Source identified and named | **PASS** | `source=brave.exe` → displayed as "Brave". |
+| **Capabilities read, not assumed** | **PASS** | `play=true pause=false next=true previous=true seek=true` on a *paused* session. A hard-coded "all true" could not produce `pause=false`; Chromium genuinely reports pause as unavailable while already paused. |
+| Capability case for a source that **cannot seek** | **NOT VERIFIED** | The fixture exists but needs a real click (see P8.2). Not exercised. |
+| Artwork extracted and decoded | **PASS** | `artwork fetched key=08698587d4e8354d bytes=21186 mime=image/png` — sniffed as PNG from the real thumbnail stream. |
+| Artwork cache bounded | **PASS (unit)** | Eviction and size-limit tests in `media::artwork`. |
+| Arbitration ran against live sessions | **PASS** | `source arbitration changed reason=Some(CurrentFallback)` — correct for a paused source that the OS reports as current. |
+| `timing=coarse` for a long-paused source | **PASS** | Correct: that session's last sample was genuinely old, so back-dating is refused rather than fabricated. |
+| **`timing=exact` back-dating on a playing source** | **NOT VERIFIED** | Needs a source that is actually playing. The window logic is unit-tested; the live path is not. |
+| Transport controls end to end | **NOT VERIFIED** | Would start audio on the user's machine unprompted. |
+
+**How to close the three gaps in about a minute:** press play on the already-loaded
+Brave tab, then check Settings → Music sources and the overlay's timing readout
+(P8.2/P8.3/P8.6). For the non-seekable case, open
+`tests/fixtures/media-session.html` and click Play.
+
+---
+
 ### Correction to the first Phase 1 run
 
 The original Phase 1 evidence below was gathered by launching the **debug binary

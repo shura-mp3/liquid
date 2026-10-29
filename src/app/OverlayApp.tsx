@@ -1,19 +1,20 @@
 /**
  * The overlay window.
  *
- * Phase 1 scope: prove the window itself works — transparent, topmost, draggable
- * widgets, click-through with a visible state, and correct behaviour at each
- * monitor's own DPI. The widgets here show real window state and placeholder *track*
- * state that is explicitly labelled as such, because no media provider exists until
- * Phase 2 and inventing a fake "now playing" would make the overlay look finished
- * when it is not.
+ * Phase 2 replaces the Phase 1 placeholder panel with real playback state from the
+ * Windows media session. The lyrics panel is still explicitly labelled as awaiting
+ * its provider — the timing engine is built and tested, but nothing is resolving
+ * lyrics for a track yet, and showing invented lines would misrepresent that.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 
-import { applyGlassToDom, ipc, type Settings } from '../providers/ipc';
+import { applyGlassToDom, ipc, type Settings, type TransportAction } from '../providers/ipc';
+import { usePlayback } from '../hooks/usePlayback';
+import { NowPlaying } from '../widgets/NowPlaying';
+import { shouldTrustWordSync } from '../core/clock';
 
 interface WidgetBox {
   x: number;
@@ -38,7 +39,6 @@ function useDraggableWidget(initial: WidgetBox, locked: boolean) {
   const onPointerDown = useCallback(
     (event: React.PointerEvent) => {
       if (locked) return;
-      // Do not start a drag from a control inside the widget.
       if ((event.target as HTMLElement).closest('.lq-no-drag')) return;
       const el = ref.current;
       if (!el) return;
@@ -73,6 +73,9 @@ export function OverlayApp({ label }: { label: string }) {
   const [clickThrough, setClickThrough] = useState(false);
   const [locked, setLocked] = useState(false);
   const [showChrome, setShowChrome] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const playback = usePlayback(settings?.globalOffsetMs ?? 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,7 +93,6 @@ export function OverlayApp({ label }: { label: string }) {
     };
   }, []);
 
-  // Hotkey-driven actions arrive as events from the native layer.
   useEffect(() => {
     const unlisteners = [
       listen<boolean>('liquid://toggle-click-through', (e) => setClickThrough(e.payload)),
@@ -105,13 +107,6 @@ export function OverlayApp({ label }: { label: string }) {
     };
   }, []);
 
-  /**
-   * Re-assert topmost when this window loses focus.
-   *
-   * Other applications take the topmost slot legitimately and silently push the
-   * overlay behind them. This is event-driven rather than a polling timer, which
-   * would burn CPU forever for a condition that changes rarely.
-   */
   useEffect(() => {
     const win = getCurrentWindow();
     const promise = win.onFocusChanged(({ payload: focused }) => {
@@ -122,16 +117,89 @@ export function OverlayApp({ label }: { label: string }) {
     };
   }, []);
 
-  const lyrics = useDraggableWidget({ x: 48, y: 120 }, locked);
-  const status = useDraggableWidget({ x: 48, y: 380 }, locked);
+  const onTransport = useCallback((action: TransportAction) => {
+    setActionError(null);
+    ipc.mediaTransport(action).catch((e) => setActionError(String(e)));
+  }, []);
 
-  if (!settings) {
-    return null;
-  }
+  const onSeek = useCallback((positionMs: number) => {
+    setActionError(null);
+    ipc.mediaSeek(positionMs).catch((e) => setActionError(String(e)));
+  }, []);
+
+  const nowPlaying = useDraggableWidget({ x: 48, y: 96 }, locked);
+  const lyrics = useDraggableWidget({ x: 48, y: 420 }, locked);
+
+  if (!settings) return null;
+
+  const sourceName =
+    playback.sessions.find((s) => s.sourceApp === playback.snapshot?.sourceApp)
+      ?.displayName ??
+    playback.snapshot?.sourceApp ??
+    null;
+
+  const trusted = playback.reading ? shouldTrustWordSync(playback.reading) : false;
 
   return (
     <div className="lq-overlay-root" data-chrome={showChrome}>
-      {/* Lyrics widget */}
+      {/* Now playing — real data from the Windows media session. */}
+      <div
+        ref={nowPlaying.ref}
+        className="lq-glass lq-widget lq-widget--np"
+        data-interactive={!clickThrough}
+        data-tinted="true"
+        style={{ transform: `translate3d(${nowPlaying.pos.x}px, ${nowPlaying.pos.y}px, 0)` }}
+        {...nowPlaying.handlers}
+      >
+        <header className="lq-widget__bar">
+          <span className="lq-widget__title">Now playing</span>
+          <span className="lq-pill lq-pill--live">live</span>
+        </header>
+
+        <NowPlaying
+          snapshot={playback.snapshot}
+          reading={playback.reading}
+          artworkUrl={playback.artworkUrl}
+          sourceName={sourceName}
+          onTransport={onTransport}
+          onSeek={onSeek}
+          bridgeError={playback.status?.bridgeRunning === false ? playback.status.error : null}
+        />
+
+        {actionError && <p className="lq-widget__note lq-widget__note--warn">{actionError}</p>}
+
+        <div className="lq-widget__actions lq-no-drag">
+          <button
+            type="button"
+            className="lq-btn lq-btn--ghost"
+            onClick={() => {
+              ipc.toggleClickThrough().then(setClickThrough).catch(console.error);
+            }}
+          >
+            {clickThrough ? 'Disable' : 'Enable'} click-through
+          </button>
+          <button type="button" className="lq-btn lq-btn--ghost" onClick={() => setLocked((v) => !v)}>
+            {locked ? 'Unlock' : 'Lock'}
+          </button>
+          <button
+            type="button"
+            className="lq-btn lq-btn--ghost"
+            onClick={() => ipc.showSettingsWindow().catch(console.error)}
+          >
+            Settings
+          </button>
+        </div>
+
+        {clickThrough && (
+          <p className="lq-widget__note lq-widget__note--warn">
+            Click-through is on, so this panel ignores the mouse. Press{' '}
+            <kbd>{settings.hotkeys['toggleClickThrough'] ?? 'Ctrl+Alt+C'}</kbd> or use the
+            tray icon to get it back.
+          </p>
+        )}
+      </div>
+
+      {/* Lyrics — engine ready, provider not yet wired. Labelled, not faked. */}
       <div
         ref={lyrics.ref}
         className="lq-glass lq-widget lq-widget--lyrics"
@@ -144,80 +212,38 @@ export function OverlayApp({ label }: { label: string }) {
           <span className="lq-widget__title">Lyrics</span>
           <span className="lq-pill lq-pill--pending">awaiting Phase 3</span>
         </header>
-        <div className="lq-lyrics">
-          <p className="lq-lyrics__line lq-lyrics__line--past">
-            the timing engine is built and tested
-          </p>
-          <p className="lq-lyrics__line lq-lyrics__line--active">
-            no media provider is connected yet
-          </p>
-          <p className="lq-lyrics__line lq-lyrics__line--future">
-            so there is nothing real to display
-          </p>
-        </div>
-        <footer className="lq-widget__note">
-          Placeholder text, not a track. Real lyrics arrive with the provider in Phase 2.
-        </footer>
-      </div>
 
-      {/* Overlay status widget — this part shows genuine live state. */}
-      <div
-        ref={status.ref}
-        className="lq-glass lq-widget lq-widget--status"
-        data-interactive={!clickThrough}
-        style={{ transform: `translate3d(${status.pos.x}px, ${status.pos.y}px, 0)` }}
-        {...status.handlers}
-      >
-        <header className="lq-widget__bar">
-          <span className="lq-widget__title">Overlay</span>
-          <span className="lq-pill lq-pill--live">live</span>
-        </header>
-        <dl className="lq-kv">
-          <dt>Window</dt>
-          <dd>
-            <code>{label}</code>
-          </dd>
-          <dt>Scale</dt>
-          <dd>{window.devicePixelRatio.toFixed(2)}&times;</dd>
-          <dt>Viewport</dt>
-          <dd>
-            {window.innerWidth} &times; {window.innerHeight}
-          </dd>
-          <dt>Click-through</dt>
-          <dd>{clickThrough ? 'on' : 'off'}</dd>
-        </dl>
-        <div className="lq-widget__actions lq-no-drag">
-          <button
-            type="button"
-            className="lq-btn"
-            onClick={() => {
-              ipc
-                .toggleClickThrough()
-                .then(setClickThrough)
-                .catch((e) => console.error(e));
-            }}
-          >
-            {clickThrough ? 'Disable' : 'Enable'} click-through
-          </button>
-          <button type="button" className="lq-btn" onClick={() => setLocked((v) => !v)}>
-            {locked ? 'Unlock' : 'Lock'} widgets
-          </button>
-          <button
-            type="button"
-            className="lq-btn lq-btn--ghost"
-            onClick={() => ipc.showSettingsWindow().catch((e) => console.error(e))}
-          >
-            Settings
-          </button>
-        </div>
-        {clickThrough && (
-          <p className="lq-widget__note lq-widget__note--warn">
-            Click-through is on, so this panel ignores the mouse. Press
-            {' '}
-            <kbd>{settings.hotkeys['toggleClickThrough'] ?? 'Ctrl+Alt+C'}</kbd> or use the
-            tray icon to get it back.
-          </p>
+        {playback.snapshot ? (
+          <div className="lq-lyrics">
+            <p className="lq-lyrics__line lq-lyrics__line--active">
+              {playback.snapshot.title}
+            </p>
+            <p className="lq-lyrics__line lq-lyrics__line--future">
+              No lyrics provider is connected yet.
+            </p>
+          </div>
+        ) : (
+          <p className="lq-muted">Waiting for a track.</p>
         )}
+
+        {/* The timing engine is already running against the live clock, so its
+            real numbers are shown rather than a mock-up of them. */}
+        <dl className="lq-kv lq-kv--timing">
+          <dt>Position</dt>
+          <dd>{Math.round(playback.reading?.positionMs ?? 0)} ms</dd>
+          <dt>Uncertainty</dt>
+          <dd>
+            <span className={trusted ? 'lq-ok' : 'lq-warn'}>
+              &plusmn;{Math.round(playback.reading?.uncertaintyMs ?? 0)} ms
+            </span>
+          </dd>
+          <dt>Source timing</dt>
+          <dd>{playback.snapshot?.timingConfidence ?? 'unknown'}</dd>
+          <dt>Last event</dt>
+          <dd>{playback.lastDiscontinuity ?? 'none'}</dd>
+          <dt>Window</dt>
+          <dd>{label}</dd>
+        </dl>
       </div>
     </div>
   );

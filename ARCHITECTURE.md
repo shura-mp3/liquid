@@ -63,10 +63,11 @@ src-tauri/src/
 │   ├── monitors.rs     EnumDisplayMonitors, per-monitor DPI, off-screen rescue
 │   └── startup.rs      HKCU\...\Run registration (no admin, no scheduled task)
 ├── media/
-│   ├── gsmtc.rs        Windows.Media.Control session manager + change subscriptions
-│   ├── provider.rs     Provider trait + capability flags
-│   ├── arbitration.rs  which source wins when several are playing
-│   └── synthetic.rs    deterministic test provider (used by the timing test suite)
+│   ├── mod.rs          PlaybackSnapshot + capability flags (no track identity: see below)
+│   ├── gsmtc.rs        Windows.Media.Control bridge on its own MTA thread, event
+│   │                   subscriptions, LastUpdatedTime back-dating, transport
+│   ├── artwork.rs      thumbnail decode, MIME sniffing, bounded LRU cache
+│   └── arbitration.rs  pure, tested rules for which source wins
 ├── timing/
 │   ├── clock.rs        QPC-based monotonic clock
 │   ├── interpolator.rs position prediction, drift estimation, uncertainty
@@ -169,6 +170,19 @@ pub struct PlaybackState {
 
 Every optional field is genuinely optional — half the sources in the wild omit album,
 artwork, or duration. Nothing is invented to fill a gap; the UI renders absence.
+
+**Identity is computed in exactly one place.** The native snapshot deliberately carries
+no `TrackIdentity`. Normalisation (stripping upload noise, *keeping* version markers,
+bucketing duration) lives in `src/core/identity.ts` with an exhaustive test suite, and
+that is also where the clock and the lyrics matcher consume it. A second normaliser in
+Rust would have to agree with it forever, and would silently orphan every saved lyric
+offset the day the two drifted apart.
+
+**Timestamps do not cross the IPC boundary; ages do.** The native clock (QPC) and the
+webview's `performance.now()` have unrelated origins, so an absolute `observed_at` is
+meaningless on the other side. The snapshot carries `age_ms` and the webview rebases
+with `performance.now() - ageMs`. This needs no clock-synchronisation handshake and no
+drift correction.
 
 `ControlCapabilities` is read from the session, so a disabled Seek button means *this source
 said it cannot seek*, which is then shown as a tooltip.

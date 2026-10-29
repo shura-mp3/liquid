@@ -637,3 +637,260 @@ kbd {
     display: none;
   }
 }
+
+/* ------------------------------------------------------------- now playing */
+
+.lq-widget--np {
+  width: 360px;
+}
+
+.lq-np__top {
+  display: flex;
+  gap: var(--lq-space-3);
+  align-items: flex-start;
+}
+
+.lq-np__art {
+  flex: none;
+  width: 76px;
+  height: 76px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgb(var(--lq-surface-raised) / 0.8);
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--lq-glass-highlight) / 0.14),
+    0 6px 18px rgb(var(--lq-bg) / 0.45);
+}
+
+.lq-np__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lq-np__art-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background:
+    linear-gradient(140deg, rgb(var(--lq-accent) / 0.4), rgb(var(--lq-album-accent) / 0.3));
+}
+
+.lq-np__meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.lq-np__title {
+  margin: 0;
+  font-size: var(--lq-text-lg);
+  font-weight: 650;
+  line-height: 1.25;
+  /* Long titles are the norm, not an edge case. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.lq-np__artist {
+  margin: 2px 0 0;
+  color: rgb(var(--lq-text-secondary));
+  font-size: var(--lq-text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lq-np__album {
+  margin: 1px 0 0;
+  color: rgb(var(--lq-text-muted));
+  font-size: var(--lq-text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lq-np__source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  color: rgb(var(--lq-text-muted));
+  font-size: var(--lq-text-xs);
+}
+
+.lq-np__source-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(var(--lq-text-muted));
+}
+
+.lq-np__source-dot[data-playing='true'] {
+  background: rgb(var(--lq-success));
+  box-shadow: 0 0 8px rgb(var(--lq-success) / 0.8);
+}
+
+.lq-np__progress {
+  position: relative;
+  height: 4px;
+  margin-top: var(--lq-space-4);
+  border-radius: 999px;
+  background: rgb(var(--lq-border) / 0.3);
+  overflow: hidden;
+}
+
+.lq-np__progress[data-seekable='true'] {
+  cursor: pointer;
+  height: 6px;
+}
+
+.lq-np__progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgb(var(--lq-accent)), rgb(var(--lq-accent-strong)));
+  transition: width 120ms linear;
+}
+
+.lq-np__times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-family: var(--lq-font-mono);
+  font-size: 0.6875rem;
+  color: rgb(var(--lq-text-muted));
+}
+
+.lq-np__controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--lq-space-3);
+  margin-top: var(--lq-space-3);
+}
+
+.lq-np__btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgb(var(--lq-border) / 0.3);
+  background: rgb(var(--lq-surface-raised) / 0.6);
+  color: rgb(var(--lq-text-primary));
+  cursor: pointer;
+  transition:
+    background var(--lq-dur-fast) var(--lq-ease),
+    transform var(--lq-dur-fast) var(--lq-spring),
+    opacity var(--lq-dur-fast) var(--lq-ease);
+}
+
+.lq-np__btn[data-primary='true'] {
+  width: 44px;
+  height: 44px;
+  background: rgb(var(--lq-accent) / 0.25);
+  border-color: rgb(var(--lq-accent) / 0.5);
+}
+
+.lq-np__btn svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.lq-np__btn[data-primary='true'] svg {
+  fill: currentColor;
+  stroke-width: 1.5;
+}
+
+.lq-np__btn:not(:disabled):hover {
+  background: rgb(var(--lq-accent) / 0.35);
+  transform: scale(1.06);
+}
+
+.lq-np__btn:not(:disabled):active {
+  transform: scale(0.94);
+}
+
+/* A control the source said it does not support: visibly inert, with a reason in
+   the tooltip rather than a button that silently does nothing. */
+.lq-np__btn:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+
+.lq-np--empty {
+  padding: var(--lq-space-3) 0;
+}
+
+.lq-np__empty-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.lq-np__empty-note {
+  margin: 4px 0 0;
+  color: rgb(var(--lq-text-muted));
+  font-size: var(--lq-text-xs);
+  line-height: 1.5;
+}
+
+.lq-kv--timing {
+  margin-top: var(--lq-space-3);
+  padding-top: var(--lq-space-3);
+  border-top: 1px solid rgb(var(--lq-border) / 0.16);
+  font-family: var(--lq-font-mono);
+  font-size: 0.6875rem;
+}
+
+/* ------------------------------------------------------------ sources panel */
+
+.lq-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(var(--lq-accent) / 0.18);
+  color: rgb(var(--lq-accent-strong));
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
+.lq-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lq-space-2);
+}
+
+.lq-cap {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: var(--lq-text-xs);
+  font-weight: 550;
+  border: 1px solid rgb(var(--lq-border) / 0.3);
+  color: rgb(var(--lq-text-muted));
+  background: rgb(var(--lq-surface) / 0.5);
+}
+
+.lq-cap[data-ok='true'] {
+  border-color: rgb(var(--lq-success) / 0.5);
+  color: rgb(var(--lq-success));
+  background: rgb(var(--lq-success) / 0.12);
+}
+
+.lq-pill[data-state='playing'] {
+  background: rgb(var(--lq-success) / 0.18);
+  color: rgb(var(--lq-success));
+}
+
+.lq-pill[data-state='paused'] {
+  background: rgb(var(--lq-warning) / 0.16);
+  color: rgb(var(--lq-warning));
+}

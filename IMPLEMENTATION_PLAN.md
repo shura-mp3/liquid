@@ -95,18 +95,49 @@ See [`docs/MANUAL_TESTS.md`](docs/MANUAL_TESTS.md) §P7 for the evidence table.
 
 ---
 
-## Phase 2 — Music source detection  `[ ]`
+## Phase 2 — Music source detection  `[~]`
 
-- [ ] `media::gsmtc` session manager, `CurrentSessionChanged` + `MediaPropertiesChanged` subscriptions
-- [ ] `PlaybackState` normalisation from GSMTC, with honest `Option` fields
-- [ ] `ControlCapabilities` read from the session; disabled controls carry a reason
-- [ ] Artwork extraction from the session thumbnail stream, cached by identity
-- [ ] Source arbitration + manual pinning
-- [ ] Synthetic provider (deterministic; the automated-test backbone)
-- [ ] Provider diagnostics panel
+- [x] `media::gsmtc` session manager on a dedicated MTA thread, with
+      `CurrentSessionChanged`, `SessionsChanged`, `MediaPropertiesChanged`,
+      `PlaybackInfoChanged` and `TimelinePropertiesChanged` subscriptions
+- [x] `PlaybackSnapshot` normalisation, every optional field genuinely optional
+- [x] **`LastUpdatedTime` back-dating** so the observation is stamped when the *source*
+      sampled the position, not when we asked — the single biggest timing win available
+      here, and what earns `TimingConfidence::Exact`
+- [x] `age_ms` on the wire, so the native monotonic clock and `performance.now()` need no
+      synchronisation handshake
+- [x] `ControlCapabilities` read from the session; disabled controls carry their reason
+      in a tooltip
+- [x] Artwork extraction from the thumbnail stream, MIME sniffed rather than trusted,
+      bounded LRU cache, fetched once per track on the bridge thread
+- [x] Source arbitration (pure + tested) and manual pinning
+- [x] Transport controls, refused up front when unsupported
+- [x] Music sources settings panel and live diagnostics
+- [ ] Synthetic provider on the Rust side — the TypeScript one in `src/core/synthetic.ts`
+      already backs the timing suite, so this is only needed if the Rust layer grows logic
+      worth driving deterministically
 
-**Exit criteria:** real metadata from at least one real app; capability flags proven correct
-by a source that cannot seek; synthetic provider drives tests with zero network.
+**Exit criteria**
+1. Real metadata from at least one real app: **VERIFIED** — Brave, full metadata,
+   65-minute duration, live position, and a 21 KB PNG cover pulled from the real
+   thumbnail stream.
+2. Capability flags proven correct: **PARTIALLY VERIFIED** — a paused session reported
+   `play=true pause=false next=true previous=true`, which a hard-coded implementation
+   could not produce. The specific *cannot seek* case was not exercised: Chromium only
+   publishes a media session after a genuine user gesture, so the fixture cannot be
+   driven unattended.
+3. Synthetic provider drives tests with zero network: **VERIFIED** — the TypeScript
+   synthetic timeline backs 13 sync-accuracy tests and touches no network.
+4. Back-dated `timing=exact` on a playing source: **NOT VERIFIED** — only a long-paused
+   source was available, which correctly reported `coarse`.
+
+See [`docs/MANUAL_TESTS.md`](docs/MANUAL_TESTS.md) §P8 for the evidence table and the
+one-minute procedure that closes the remaining gaps.
+
+`tests/fixtures/media-session.html` is the verification harness: it publishes a session
+with known metadata and registers handlers for play/pause/next/previous but deliberately
+**not** `seekto`, so a reader that assumes capabilities instead of reading them fails
+visibly.
 
 ---
 

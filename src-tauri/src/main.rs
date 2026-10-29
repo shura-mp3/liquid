@@ -3,6 +3,7 @@
 
 mod commands;
 mod diagnostics;
+mod media;
 mod platform;
 mod state;
 mod storage;
@@ -251,6 +252,43 @@ fn register_hotkeys(app: &tauri::AppHandle) {
     }
 }
 
+/// Start the Windows media-session bridge and forward its updates to the webviews.
+///
+/// Failure here is not fatal: the overlay, glass and settings all still work, and the
+/// UI reports that track information is unavailable rather than silently showing an
+/// empty HUD forever.
+#[cfg(windows)]
+fn start_media_bridge(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+
+    let clock = {
+        let state = app.state::<AppState>();
+        std::sync::Arc::clone(&state.clock)
+    };
+
+    let emit_handle = app.clone();
+    let bridge = media::gsmtc::GsmtcBridge::start(clock, move |snapshot, sessions| {
+        // Fired from the bridge thread. AppHandle is Send + Sync, so emitting from
+        // here is fine and avoids hopping through the main thread for every tick.
+        let payload = serde_json::json!({
+            "snapshot": snapshot,
+            "sessions": sessions,
+        });
+        if let Err(e) = emit_handle.emit("liquid://playback", payload) {
+            tracing::debug!(error = %e, "could not emit playback update");
+        }
+    });
+
+    let state = app.state::<AppState>();
+    *state.media.lock() = Some(bridge);
+    tracing::info!("media session bridge started");
+}
+
+#[cfg(not(windows))]
+fn start_media_bridge(_app: &tauri::AppHandle) {
+    tracing::warn!("media sessions are only implemented for Windows");
+}
+
 fn main() {
     let start_minimised = std::env::args().any(|a| a == "--minimised");
 
@@ -274,6 +312,12 @@ fn main() {
             commands::set_launch_at_login,
             commands::show_settings_window,
             commands::report_frontend_ready,
+            commands::get_media_status,
+            commands::set_pinned_source,
+            commands::media_transport,
+            commands::media_seek,
+            commands::get_artwork,
+            commands::refresh_media_sessions,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -301,6 +345,7 @@ fn main() {
             build_tray(&handle)?;
             create_overlays(&handle)?;
             register_hotkeys(&handle);
+            start_media_bridge(&handle);
 
             // Restore the saved overlay state.
             if overlay_visible {

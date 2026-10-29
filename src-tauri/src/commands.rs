@@ -3,11 +3,169 @@
 //! Every command returns `Result<_, String>` so a failure surfaces in the UI as a
 //! message the user can act on, rather than a silently rejected promise.
 
+use serde::Serialize;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 
+use crate::media::{PlaybackSnapshot, SessionSummary, TransportAction};
 use crate::platform::{self, MonitorInfo, OverlayObstruction};
 use crate::state::AppState;
 use crate::storage::Settings;
+
+// ---------------------------------------------------------------------------
+// Media sessions
+// ---------------------------------------------------------------------------
+
+/// What the media subsystem is currently doing, in terms the UI can show.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaStatus {
+    /// False when the session service could not be reached at all.
+    pub bridge_running: bool,
+    pub error: Option<String>,
+    pub snapshot: Option<PlaybackSnapshot>,
+    pub sessions: Vec<SessionSummary>,
+    pub pinned: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_media_status(state: State<'_, AppState>) -> MediaStatus {
+    #[cfg(windows)]
+    {
+        let guard = state.media.lock();
+        match guard.as_ref() {
+            Some(bridge) => MediaStatus {
+                bridge_running: true,
+                error: bridge.last_error(),
+                snapshot: bridge.snapshot(),
+                sessions: bridge.sessions(),
+                pinned: bridge.pinned(),
+            },
+            None => MediaStatus {
+                bridge_running: false,
+                error: Some(
+                    "The Windows media session service could not be reached. Track information \
+                     is unavailable."
+                        .into(),
+                ),
+                snapshot: None,
+                sessions: Vec::new(),
+                pinned: None,
+            },
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = state;
+        MediaStatus {
+            bridge_running: false,
+            error: Some("Media sessions are only implemented for Windows.".into()),
+            snapshot: None,
+            sessions: Vec::new(),
+            pinned: None,
+        }
+    }
+}
+
+/// Pin a source so arbitration always follows it, or pass `null` to clear.
+#[tauri::command]
+pub fn set_pinned_source(
+    state: State<'_, AppState>,
+    source_app: Option<String>,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let guard = state.media.lock();
+        let bridge = guard
+            .as_ref()
+            .ok_or_else(|| "media sessions are unavailable".to_string())?;
+        bridge.set_pinned(source_app);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (state, source_app);
+        Err("media sessions are only implemented for Windows".into())
+    }
+}
+
+/// Send a transport command to the active source.
+///
+/// Fails with an explanation when the source has not advertised the capability,
+/// rather than issuing a call that silently does nothing.
+#[tauri::command]
+pub fn media_transport(state: State<'_, AppState>, action: TransportAction) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let guard = state.media.lock();
+        let bridge = guard
+            .as_ref()
+            .ok_or_else(|| "media sessions are unavailable".to_string())?;
+        bridge.transport(action).map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (state, action);
+        Err("media sessions are only implemented for Windows".into())
+    }
+}
+
+#[tauri::command]
+pub fn media_seek(state: State<'_, AppState>, position_ms: u64) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let guard = state.media.lock();
+        let bridge = guard
+            .as_ref()
+            .ok_or_else(|| "media sessions are unavailable".to_string())?;
+        bridge.seek(position_ms).map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (state, position_ms);
+        Err("media sessions are only implemented for Windows".into())
+    }
+}
+
+/// Force an immediate re-read of the media sessions.
+///
+/// The bridge is event-driven with a slow tick, so a source that publishes a session
+/// without raising an event can take a second to appear. This is the "nothing showed
+/// up, try again" button rather than making the tick faster for everyone.
+#[tauri::command]
+pub fn refresh_media_sessions(state: State<'_, AppState>) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let guard = state.media.lock();
+        let bridge = guard
+            .as_ref()
+            .ok_or_else(|| "media sessions are unavailable".to_string())?;
+        bridge.refresh();
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = state;
+        Err("media sessions are only implemented for Windows".into())
+    }
+}
+
+/// Album art as a data URL, or `None` when this track has none.
+#[tauri::command]
+pub fn get_artwork(state: State<'_, AppState>, key: String) -> Option<String> {
+    #[cfg(windows)]
+    {
+        let guard = state.media.lock();
+        guard
+            .as_ref()
+            .and_then(|b| b.artwork(&key))
+            .map(|a| a.to_data_url())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (state, key);
+        None
+    }
+}
 
 /// Pull the raw HWND out of a Tauri window.
 ///
@@ -196,7 +354,7 @@ pub fn assert_topmost(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OverlayStatus {
     pub label: String,
@@ -235,7 +393,7 @@ pub fn overlay_status(app: AppHandle) -> Result<Vec<OverlayStatus>, String> {
     Ok(out)
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostics {
     pub app_version: String,
@@ -243,9 +401,13 @@ pub struct Diagnostics {
     pub monotonic_now_ms: f64,
     pub monitor_count: usize,
     pub launches_at_login: bool,
-    /// Phase 2+ subsystems. Reported as unavailable rather than faked.
+    /// Phase 4 subsystem. Reported as unavailable rather than faked.
     pub audio_capture: &'static str,
-    pub media_session: &'static str,
+    /// Live description of the media bridge, not a hard-coded string.
+    pub media_session: String,
+    pub artwork_cached: bool,
+    /// Entries held by the bounded artwork cache, so growth is visible.
+    pub artwork_cache_entries: usize,
 }
 
 #[tauri::command]
@@ -260,7 +422,68 @@ pub fn get_diagnostics(state: State<'_, AppState>) -> Diagnostics {
         #[cfg(not(windows))]
         launches_at_login: false,
         audio_capture: "not implemented (Phase 4)",
-        media_session: "not implemented (Phase 2)",
+        media_session: describe_media(&state),
+        artwork_cached: {
+            #[cfg(windows)]
+            {
+                let guard = state.media.lock();
+                guard
+                    .as_ref()
+                    .and_then(|b| b.snapshot())
+                    .and_then(|s| s.artwork_key)
+                    .map(|k| {
+                        let g = state.media.lock();
+                        g.as_ref().and_then(|b| b.artwork(&k)).is_some()
+                    })
+                    .unwrap_or(false)
+            }
+            #[cfg(not(windows))]
+            false
+        },
+        artwork_cache_entries: {
+            #[cfg(windows)]
+            {
+                let guard = state.media.lock();
+                guard.as_ref().map(|b| b.artwork_entries()).unwrap_or(0)
+            }
+            #[cfg(not(windows))]
+            0
+        },
+    }
+}
+
+/// One line describing the media bridge's real state.
+fn describe_media(state: &State<'_, AppState>) -> String {
+    #[cfg(windows)]
+    {
+        let guard = state.media.lock();
+        match guard.as_ref() {
+            None => "unavailable — the session service could not be reached".to_string(),
+            Some(bridge) => {
+                if let Some(e) = bridge.last_error() {
+                    return format!("error: {e}");
+                }
+                let sessions = bridge.sessions().len();
+                match bridge.snapshot() {
+                    Some(s) => format!(
+                        "connected — following {} ({} session{})",
+                        s.source_app.as_deref().unwrap_or("unknown source"),
+                        sessions,
+                        if sessions == 1 { "" } else { "s" }
+                    ),
+                    None => format!(
+                        "connected — no track playing ({} session{})",
+                        sessions,
+                        if sessions == 1 { "" } else { "s" }
+                    ),
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = state;
+        "only implemented for Windows".to_string()
     }
 }
 

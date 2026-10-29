@@ -91,6 +91,18 @@ GSMTC requires Windows 10 build **17763+**; build 19045 qualifies. Metadata rich
 decided by the *source application*, not by LIQUID. Providers report capabilities
 explicitly; unavailable controls are rendered disabled with a reason, never as dead buttons.
 
+### Verified in Phase 2 against live sessions
+
+| Finding | Detail |
+|---|---|
+| **`LastUpdatedTime` is the key to timing accuracy** | `GetTimelineProperties()` returns both a `Position` and the instant the source sampled it. Stamping the observation "now" would bake that staleness in as a fixed sync error. LIQUID back-dates to the sample instant, which is what earns `TimingConfidence::Exact`. Ages outside `0..30 s` (clock skew, or a source that stopped updating) fall back to "now" with reduced confidence rather than producing a wildly wrong basis. |
+| **Two monotonic clocks cannot share a timestamp** | The native clock (QPC) and the webview's `performance.now()` have unrelated origins, so an absolute `observed_at` is meaningless across the IPC boundary. The snapshot carries `age_ms` instead and the webview rebases with `performance.now() - ageMs`. An age survives the crossing; a timestamp does not. This avoids a clock-synchronisation handshake entirely. |
+| GSMTC exposes **no volume control** | `GlobalSystemMediaTransportControlsSessionPlaybackControls` has no volume member, so that capability is always reported false rather than optimistically true. |
+| `PlaybackRate` is frequently null | Null means "normal", not zero. Treated as `1.0`. |
+| Sessions without a title exist | Published by apps that are not really playing anything. Treated as no session rather than rendered as an empty widget. |
+| Thumbnail content types are unreliable | Sources report them inconsistently or leave them empty, and a data URL with the wrong MIME silently fails to render. The bytes are sniffed instead. |
+| Artwork reads are blocking WinRT I/O | Fetched once per track on the bridge thread, never lazily from a command, which would stall the UI thread. |
+
 ---
 
 ## 4. Spotify policy review (mandatory gate)

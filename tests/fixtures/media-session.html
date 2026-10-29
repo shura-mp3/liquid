@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LIQUID media session fixture</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+        background: #0d1020;
+        color: #e8ecff;
+      }
+      .card {
+        width: min(560px, 92vw);
+        padding: 28px;
+        border-radius: 18px;
+        background: #161a2e;
+        border: 1px solid #2d3557;
+      }
+      h1 { margin: 0 0 4px; font-size: 1.2rem; }
+      p.sub { margin: 0 0 20px; color: #96a0c8; font-size: 0.875rem; }
+      button {
+        font: inherit; font-weight: 600; cursor: pointer;
+        padding: 9px 16px; border-radius: 9px;
+        border: 1px solid #4a7cff80; background: #4a7cff30; color: #cfdcff;
+      }
+      button:hover { background: #4a7cff50; }
+      dl { display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; margin: 20px 0 0;
+           font-size: 0.8125rem; }
+      dt { color: #8a94bd; }
+      dd { margin: 0; font-family: "Cascadia Mono", Consolas, monospace; }
+      .note { margin-top: 20px; padding: 12px 14px; border-radius: 10px;
+              background: #10142a; border-left: 3px solid #4a7cff; font-size: 0.8125rem;
+              color: #a9b3d8; }
+      code { color: #cfdcff; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>LIQUID media session fixture</h1>
+      <p class="sub">
+        Publishes a Windows media session with known metadata, so the GSMTC bridge can be
+        verified against values chosen in advance rather than against whatever happens to
+        be playing.
+      </p>
+
+      <button id="toggle" type="button">Play</button>
+
+      <dl>
+        <dt>Title</dt><dd id="d-title">—</dd>
+        <dt>Artist</dt><dd id="d-artist">—</dd>
+        <dt>Album</dt><dd id="d-album">—</dd>
+        <dt>State</dt><dd id="d-state">stopped</dd>
+        <dt>Position</dt><dd id="d-pos">0.0 s</dd>
+      </dl>
+
+      <div class="note">
+        <strong>Press Play with the mouse or keyboard.</strong> Chromium only hands a
+        media session to Windows once playback has been started by a genuine user
+        gesture. Launching with <code>--autoplay-policy=no-user-gesture-required</code>
+        makes the audio play, but the session stays inactive and never reaches GSMTC,
+        so this fixture cannot be driven fully unattended — a real click is required.
+      </div>
+
+      <div class="note">
+        <strong>Capabilities are deliberately asymmetric.</strong> This page registers
+        handlers for <code>play</code>, <code>pause</code>, <code>nexttrack</code> and
+        <code>previoustrack</code>, but <em>not</em> <code>seekto</code>. A correct reader
+        must therefore report seek as unsupported. If LIQUID shows seeking as available,
+        it is assuming capabilities instead of reading them.
+      </div>
+    </div>
+
+    <script>
+      // --- a real audio stream, because a media session needs actual playback -----
+      // 440 Hz at low volume, generated in-page so the fixture ships no audio file.
+      /** Returns a data: URL for a generated WAV tone. */
+      function toneWav(seconds, hz, sampleRate = 44100) {
+        const frames = seconds * sampleRate;
+        const buffer = new ArrayBuffer(44 + frames * 2);
+        const view = new DataView(buffer);
+        const ascii = (off, s) => [...s].forEach((c, i) => view.setUint8(off + i, c.charCodeAt(0)));
+
+        ascii(0, 'RIFF');
+        view.setUint32(4, 36 + frames * 2, true);
+        ascii(8, 'WAVEfmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);          // PCM
+        view.setUint16(22, 1, true);          // mono
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        ascii(36, 'data');
+        view.setUint32(40, frames * 2, true);
+
+        for (let i = 0; i < frames; i++) {
+          // Quiet, and faded at both ends so looping does not click.
+          const t = i / sampleRate;
+          const fade = Math.min(1, t * 4, (seconds - t) * 4);
+          const sample = Math.sin(2 * Math.PI * hz * t) * 0.06 * Math.max(0, fade);
+          view.setInt16(44 + i * 2, sample * 0x7fff, true);
+        }
+        // data: URL rather than a blob: URL — blob URLs inherit the page's origin,
+        // which is opaque for file:// pages and can behave inconsistently.
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        return `data:audio/wav;base64,${btoa(binary)}`;
+      }
+
+      const TRACK = {
+        title: 'LIQUID Fixture Track',
+        artist: 'Verification Suite',
+        album: 'Phase 2 Fixtures',
+      };
+
+      const audio = new Audio(toneWav(30, 440));
+      audio.loop = true;
+
+      const $ = (id) => document.getElementById(id);
+      $('d-title').textContent = TRACK.title;
+      $('d-artist').textContent = TRACK.artist;
+      $('d-album').textContent = TRACK.album;
+
+      // A 1x1 PNG, so artwork extraction has something deterministic to read.
+      const artwork = [
+        {
+          src:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+          sizes: '1x1',
+          type: 'image/png',
+        },
+      ];
+
+      function publish() {
+        if (!('mediaSession' in navigator)) return;
+        navigator.mediaSession.metadata = new MediaMetadata({ ...TRACK, artwork });
+
+        navigator.mediaSession.setActionHandler('play', () => audio.play());
+        navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+          audio.currentTime = 0;
+        });
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+          audio.currentTime = 0;
+        });
+        // seekto is intentionally left unregistered - see the note in the page.
+      }
+
+      function setTitle(state) {
+        // The window title is the fixture's out-of-band status channel: a script
+        // driving this page can read it with GetWindowTextW and know whether
+        // playback really started, without needing to see the screen.
+        document.title = `LIQUID fixture [${state}]`;
+      }
+
+      function reportPosition() {
+        if (!('setPositionState' in navigator.mediaSession)) return;
+        if (!Number.isFinite(audio.duration)) return;
+        navigator.mediaSession.setPositionState({
+          duration: audio.duration,
+          playbackRate: audio.playbackRate,
+          position: audio.currentTime,
+        });
+      }
+
+      $('toggle').addEventListener('click', async () => {
+        if (audio.paused) {
+          await audio.play();
+        } else {
+          audio.pause();
+        }
+      });
+
+      audio.addEventListener('play', () => {
+        publish();
+        navigator.mediaSession.playbackState = 'playing';
+        $('d-state').textContent = 'playing';
+        setTitle('playing');
+        $('toggle').textContent = 'Pause';
+        reportPosition();
+      });
+
+      audio.addEventListener('pause', () => {
+        navigator.mediaSession.playbackState = 'paused';
+        $('d-state').textContent = 'paused';
+        setTitle('paused');
+        $('toggle').textContent = 'Play';
+        reportPosition();
+      });
+
+      audio.addEventListener('timeupdate', () => {
+        $('d-pos').textContent = `${audio.currentTime.toFixed(1)} s`;
+        reportPosition();
+      });
+
+      // Chromium only hands a media session to the OS once playback has been
+      // started by a genuine user gesture; the autoplay flag starts the audio but
+      // leaves the session inactive and invisible to GSMTC. A keypress is a real
+      // gesture and needs no cursor geometry, so an unattended run can send one.
+      window.addEventListener('keydown', async (e) => {
+        e.preventDefault();
+        audio.pause();
+        try {
+          await audio.play();
+          setTitle('playing-gesture');
+        } catch (err) {
+          setTitle(`gesture-failed-${err.name}`);
+        }
+      });
+
+      setTitle('idle');
+      publish();
+
+      // Try to start without a click, so the fixture can be driven from a script.
+      // Browsers block this by default; launch with
+      //   --autoplay-policy=no-user-gesture-required
+      // for unattended runs. The button remains for interactive use, and a blocked
+      // autoplay is reported rather than failing silently.
+      audio.play().catch((err) => {
+        $('d-state').textContent = `blocked (${err.name}) — press Play`;
+        setTitle(`blocked-${err.name}`);
+      });
+    </script>
+  </body>
+</html>

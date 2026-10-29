@@ -68,6 +68,73 @@ export interface OverlayStatus {
   obstruction: OverlayObstruction;
 }
 
+// ---------------------------------------------------------------------------
+// Media sessions
+// ---------------------------------------------------------------------------
+
+export type MediaPlaybackStatus = 'playing' | 'paused' | 'stopped' | 'unknown';
+export type MediaTimingConfidence = 'exact' | 'interpolated' | 'coarse' | 'unknown';
+export type MediaProvenance = 'gsmtc' | 'extension' | 'synthetic' | 'user';
+
+export interface MediaControlCapabilities {
+  play: boolean;
+  pause: boolean;
+  next: boolean;
+  previous: boolean;
+  seek: boolean;
+  volume: boolean;
+}
+
+/**
+ * Raw playback state from the native side. Carries no track identity on purpose —
+ * see the note in `src-tauri/src/media/mod.rs`; identity is derived here with the
+ * single tested implementation in `core/identity.ts`.
+ */
+export interface PlaybackSnapshot {
+  title: string;
+  artist: string | null;
+  album: string | null;
+  durationMs: number | null;
+  positionMs: number;
+  status: MediaPlaybackStatus;
+  rate: number;
+  /** Native clock base; not comparable with `performance.now()`. Use `ageMs`. */
+  observedAtMs: number;
+  /** How long before the snapshot was produced the position was sampled. */
+  ageMs: number;
+  timingConfidence: MediaTimingConfidence;
+  controls: MediaControlCapabilities;
+  sourceApp: string | null;
+  provenance: MediaProvenance;
+  artworkKey: string | null;
+}
+
+export interface SessionSummary {
+  sourceApp: string;
+  displayName: string;
+  title: string | null;
+  artist: string | null;
+  status: MediaPlaybackStatus;
+  isCurrent: boolean;
+  isPinned: boolean;
+}
+
+export interface MediaStatus {
+  bridgeRunning: boolean;
+  error: string | null;
+  snapshot: PlaybackSnapshot | null;
+  sessions: SessionSummary[];
+  pinned: string | null;
+}
+
+export type TransportAction = 'play' | 'pause' | 'play-pause' | 'next' | 'previous';
+
+/** Payload of the `liquid://playback` event. */
+export interface PlaybackEvent {
+  snapshot: PlaybackSnapshot | null;
+  sessions: SessionSummary[];
+}
+
 export interface Diagnostics {
   appVersion: string;
   monotonicClockDegraded: boolean;
@@ -76,6 +143,8 @@ export interface Diagnostics {
   launchesAtLogin: boolean;
   audioCapture: string;
   mediaSession: string;
+  artworkCached: boolean;
+  artworkCacheEntries: number;
 }
 
 export const ipc = {
@@ -98,6 +167,15 @@ export const ipc = {
    */
   reportFrontendReady: (route: string, href: string) =>
     invoke<void>('report_frontend_ready', { route, href }),
+
+  getMediaStatus: () => invoke<MediaStatus>('get_media_status'),
+  setPinnedSource: (sourceApp: string | null) =>
+    invoke<void>('set_pinned_source', { sourceApp }),
+  mediaTransport: (action: TransportAction) =>
+    invoke<void>('media_transport', { action }),
+  mediaSeek: (positionMs: number) => invoke<void>('media_seek', { positionMs }),
+  getArtwork: (key: string) => invoke<string | null>('get_artwork', { key }),
+  refreshMediaSessions: () => invoke<void>('refresh_media_sessions'),
 };
 
 /**
