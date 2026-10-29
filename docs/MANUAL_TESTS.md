@@ -380,6 +380,59 @@ with a 21 KB PNG. Logged for investigation — see the note in `COMPATIBILITY.md
 
 ---
 
+## P11 — Overlay safety (critical repair)
+
+The overlay once appeared as a fullscreen opaque white window titled "LIQUID
+Overlay (Not Responding)" that swallowed every click. These checks exist so that
+cannot recur unnoticed.
+
+### P11.1 The overlay is small, never fullscreen
+**Pass:** each overlay is a capsule roughly 420x160 logical pixels near the top of
+its monitor. Any overlay the size of the work area is a regression.
+
+### P11.2 Clicks pass through to applications behind
+1. Position the capsule over Spotify.
+2. Click where the capsule is.
+**Pass:** Spotify receives the click. Repeat over a browser and over desktop icons.
+
+### P11.3 The overlay never steals focus
+Type into Notepad with the capsule visible, then click the capsule.
+**Pass:** the caret stays in Notepad; the capsule does not take focus.
+
+### P11.4 Emergency hide works when everything is wedged
+**Pass:** `Ctrl+Alt+H` hides every overlay instantly. It is handled natively, so it
+works with a hung frontend. The tray item *Hide all overlays now* does the same.
+
+### P11.5 A broken overlay hides itself
+Break it deliberately — stop the dev server while the app runs, so the overlay
+cannot load.
+**Pass:** the overlay never appears, and Settings → Overlays shows it as `failed`
+with an explanation. It must not appear blank on screen.
+
+### P11.6 Edit mode
+1. Turn click-through off (`Ctrl+Alt+C`, tray, or Settings).
+**Pass:** the capsule gains a dashed outline and controls, and dragging it moves the
+window.
+2. Press **Done**.
+**Pass:** click-through returns and clicks pass through again.
+
+### P11.7 No white flash at startup
+**Pass:** starting LIQUID never shows a white rectangle, even briefly.
+
+### Run 2026-10-29 (g) — overlay repair
+
+| Check | Result | Evidence |
+|---|---|---|
+| Overlay size | **PASS (external probe)** | `rect=750,24 420x160` and `rect=2670,24 420x160` — not the 1920x1040 work area it used to be. |
+| Click-through at the OS level | **PASS (external probe)** | ex-style `0x080401B8` includes `WS_EX_TRANSPARENT`, so clicks reach the window behind. |
+| No focus stealing / no taskbar entry | **PASS (external probe)** | Same probe: `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW`. |
+| Readiness gating | **PASS (live)** | `overlay created off-screen ... awaiting frontend` then `overlay frontend ready` 170 ms later; only then is it moved on screen. |
+| Watchdog hides a non-loading overlay | **PASS (live)** | Observed during the repair: `overlay never reported ready; failing and hiding it ... timeout_s=15`. The desktop stayed usable. |
+| Recovery after failure | **PASS (unit)** | A fresh readiness signal revives a failed overlay; the target position survives. |
+| **P11.2, P11.3, P11.6, P11.7** | **NOT VERIFIED** | All need a human clicking and looking. |
+
+---
+
 ### Correction to the first Phase 1 run
 
 The original Phase 1 evidence below was gathered by launching the **debug binary

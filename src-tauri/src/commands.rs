@@ -475,20 +475,12 @@ pub fn set_click_through(
     enabled: bool,
 ) -> Result<bool, String> {
     if !state.may_toggle_click_through() {
-        // Not an error: report the unchanged state so a jittery UI control settles
+        // Not an error: report the unchanged state so a jittery control settles
         // instead of retrying and provoking the Win10 black-transparency bug.
         return Ok(state.settings.lock().click_through);
     }
 
-    #[cfg(windows)]
-    for window in overlay_windows(&app) {
-        let handle = handle_of(&window)?;
-        platform::overlay::set_click_through(handle, enabled)
-            .map_err(|e| format!("could not set click-through: {e}"))?;
-    }
-    #[cfg(not(windows))]
-    let _ = &app;
-
+    crate::overlays::manager::set_click_through_all(&app, enabled)?;
     state.settings.lock().click_through = enabled;
     state.persist()?;
     Ok(enabled)
@@ -508,6 +500,9 @@ pub fn toggle_click_through(app: AppHandle, state: State<'_, AppState>) -> Resul
 /// be rate-limited.
 #[tauri::command]
 pub fn restore_interactivity(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    // Clearing the latch is part of "restore": otherwise an emergency hide would
+    // leave the user with a rescue action that appears to do nothing.
+    state.overlays.set_emergency_hidden(false);
     #[cfg(windows)]
     for window in overlay_windows(&app) {
         let handle = handle_of(&window)?;
@@ -533,26 +528,31 @@ pub fn set_overlay_visible(
     state: State<'_, AppState>,
     visible: bool,
 ) -> Result<(), String> {
-    for window in overlay_windows(&app) {
-        let result = if visible {
-            window.show()
-        } else {
-            window.hide()
-        };
-        result.map_err(|e| format!("could not change overlay visibility: {e}"))?;
-
-        // tao rewrites the whole extended-style word from its own flag model when it
-        // re-applies window flags, which `show()` does — so the overlay styles must
-        // be re-asserted afterwards or they are silently lost.
-        #[cfg(windows)]
-        if visible {
-            let handle = handle_of(&window)?;
-            platform::overlay::apply_overlay_styles(handle)
-                .map_err(|e| format!("could not re-apply overlay styles after show: {e}"))?;
-        }
-    }
     state.settings.lock().overlay_visible = visible;
-    state.persist()
+    state.persist()?;
+
+    // Routed through the manager so the readiness gate cannot be bypassed: asking
+    // for an overlay that never loaded to be shown must still not show it.
+    if visible {
+        crate::overlays::manager::show_all(&app)
+    } else {
+        for label in state.overlays.labels() {
+            crate::overlays::manager::hide(&app, &label)?;
+        }
+        Ok(())
+    }
+}
+
+/// Hide every overlay immediately and latch them hidden.
+#[tauri::command]
+pub fn emergency_hide_overlays(app: AppHandle) {
+    crate::overlays::manager::emergency_hide_all(&app);
+}
+
+/// Current lifecycle state of every overlay, for the settings window.
+#[tauri::command]
+pub fn get_overlay_states(state: State<'_, AppState>) -> Vec<crate::overlays::OverlayInfo> {
+    state.overlays.info()
 }
 
 /// Re-assert topmost Z-order for every overlay.
@@ -732,13 +732,15 @@ pub fn set_launch_at_login(state: State<'_, AppState>, enabled: bool) -> Result<
 /// native side had no idea. This log line is the evidence that the frontend is
 /// really running, and it is the first thing to check when a window looks blank.
 #[tauri::command]
-pub fn report_frontend_ready(window: WebviewWindow, route: String, href: String) {
-    tracing::info!(
-        label = %window.label(),
-        %route,
-        %href,
-        "frontend ready"
-    );
+pub fn report_frontend_ready(app: AppHandle, window: WebviewWindow, route: String, href: String) {
+    let label = window.label().to_string();
+    tracing::info!(%label, %route, %href, "frontend ready");
+
+    // For an overlay this is the only route from Loading to a window the user can
+    // actually see.
+    if label.starts_with("overlay-") || label == "island" {
+        crate::overlays::manager::mark_ready(&app, &label);
+    }
 }
 
 #[tauri::command]

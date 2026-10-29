@@ -1,89 +1,45 @@
 /**
- * The overlay window.
+ * The overlay window: a compact HUD capsule.
  *
- * Phase 2 replaces the Phase 1 placeholder panel with real playback state from the
- * Windows media session. The lyrics panel is still explicitly labelled as awaiting
- * its provider — the timing engine is built and tested, but nothing is resolving
- * lyrics for a track yet, and showing invented lines would misrepresent that.
+ * Rebuilt after the fullscreen overlay turned into a desktop-blocking white sheet.
+ * The window is now small (420x160 logical by default) and **the window itself is
+ * the widget** — there is no canvas of draggable boxes, because a window that size
+ * has no room for one, and a window large enough to need one is a window large
+ * enough to block the screen.
+ *
+ * Interaction model:
+ *
+ * - **Normal:** click-through is on. The capsule shows information and ignores the
+ *   mouse entirely, so Spotify and everything behind it stay clickable.
+ * - **Edit mode:** click-through off. Dragging the capsule moves the window, and a
+ *   Done button restores click-through. Entered from the tray, the settings window,
+ *   or Ctrl+Alt+C.
+ *
+ * Nothing here paints an opaque background. The root is transparent and
+ * `pointer-events: none`; only the capsule opts back in, and only in edit mode.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 
 import { applyGlassToDom, ipc, type Settings, type TransportAction } from '../providers/ipc';
-import { usePlayback } from '../hooks/usePlayback';
-import { NowPlaying } from '../widgets/NowPlaying';
-import { LyricsPanel, LAYOUTS as LAYOUT_OPTIONS, type LyricsLayout } from '../widgets/LyricsPanel';
+import { usePlayback, formatTime } from '../hooks/usePlayback';
 import { useLyrics } from '../hooks/useLyrics';
 import { useAudio } from '../hooks/useAudio';
-import { Spectrum, VISUALISER_MODES, type VisualiserMode } from '../visualizers/Spectrum';
-
-interface WidgetBox {
-  x: number;
-  y: number;
-}
-
-/** Snap a dragged widget to screen edges and to a grid, like a real HUD editor. */
-const SNAP_PX = 12;
-const GRID_PX = 8;
-
-function snap(value: number, min: number, max: number): number {
-  if (Math.abs(value - min) < SNAP_PX) return min;
-  if (Math.abs(value - max) < SNAP_PX) return max;
-  return Math.round(value / GRID_PX) * GRID_PX;
-}
-
-function useDraggableWidget(initial: WidgetBox, locked: boolean) {
-  const [pos, setPos] = useState(initial);
-  const ref = useRef<HTMLDivElement | null>(null);
-  const drag = useRef<{ dx: number; dy: number } | null>(null);
-
-  const onPointerDown = useCallback(
-    (event: React.PointerEvent) => {
-      if (locked) return;
-      if ((event.target as HTMLElement).closest('.lq-no-drag')) return;
-      const el = ref.current;
-      if (!el) return;
-      el.setPointerCapture(event.pointerId);
-      drag.current = { dx: event.clientX - pos.x, dy: event.clientY - pos.y };
-    },
-    [locked, pos.x, pos.y],
-  );
-
-  const onPointerMove = useCallback((event: React.PointerEvent) => {
-    const d = drag.current;
-    const el = ref.current;
-    if (!d || !el) return;
-    const maxX = window.innerWidth - el.offsetWidth;
-    const maxY = window.innerHeight - el.offsetHeight;
-    setPos({
-      x: Math.min(Math.max(0, snap(event.clientX - d.dx, 0, maxX)), maxX),
-      y: Math.min(Math.max(0, snap(event.clientY - d.dy, 0, maxY)), maxY),
-    });
-  }, []);
-
-  const onPointerUp = useCallback((event: React.PointerEvent) => {
-    drag.current = null;
-    ref.current?.releasePointerCapture(event.pointerId);
-  }, []);
-
-  return { ref, pos, handlers: { onPointerDown, onPointerMove, onPointerUp } };
-}
+import { Spectrum, type VisualiserMode } from '../visualizers/Spectrum';
+import { activeLineIndex } from '../core/lrc';
+import { lyricTimeMs } from '../core/clock';
 
 export function OverlayApp({ label }: { label: string }) {
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [clickThrough, setClickThrough] = useState(false);
-  const [locked, setLocked] = useState(false);
-  const [showChrome, setShowChrome] = useState(true);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [clickThrough, setClickThrough] = useState(true);
+  const [visMode] = useState<VisualiserMode>('bars');
+  const [currentLine, setCurrentLine] = useState<string | null>(null);
 
   const playback = usePlayback(settings?.globalOffsetMs ?? 0);
   const lyrics = useLyrics(playback.snapshot, playback.offsetKey);
-  const [layout, setLayout] = useState<LyricsLayout>('centered');
   const audio = useAudio();
-  const [visMode, setVisMode] = useState<VisualiserMode>('bars');
-  const [showVisualiser, setShowVisualiser] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,10 +60,9 @@ export function OverlayApp({ label }: { label: string }) {
   useEffect(() => {
     const unlisteners = [
       listen<boolean>('liquid://toggle-click-through', (e) => setClickThrough(e.payload)),
-      listen('liquid://toggle-hud', () => setShowChrome((v) => !v)),
-      listen('liquid://toggle-visualiser', () => setShowVisualiser((v) => !v)),
       listen<Settings>('liquid://settings-changed', (e) => {
         setSettings(e.payload);
+        setClickThrough(e.payload.clickThrough);
         applyGlassToDom(e.payload.glass, e.payload.theme);
       }),
     ];
@@ -116,9 +71,9 @@ export function OverlayApp({ label }: { label: string }) {
     };
   }, []);
 
+  // Re-assert topmost when focus moves elsewhere. Event-driven, not polled.
   useEffect(() => {
-    const win = getCurrentWindow();
-    const promise = win.onFocusChanged(({ payload: focused }) => {
+    const promise = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (!focused) ipc.assertTopmost().catch(() => {});
     });
     return () => {
@@ -126,290 +81,200 @@ export function OverlayApp({ label }: { label: string }) {
     };
   }, []);
 
-  const onTransport = useCallback((action: TransportAction) => {
-    setActionError(null);
-    ipc.mediaTransport(action).catch((e) => setActionError(String(e)));
-  }, []);
-
-  const onSeek = useCallback((positionMs: number) => {
-    setActionError(null);
-    ipc.mediaSeek(positionMs).catch((e) => setActionError(String(e)));
-  }, []);
-
-  const nowPlaying = useDraggableWidget({ x: 48, y: 96 }, locked);
   /**
-   * Reactive borders: write audio energy straight into CSS custom properties on
-   * the overlay root, inside the audio loop. CSS then drives the glow with no
-   * React render at all — the alternative, putting bass level into state at 50 Hz,
-   * would re-render every widget for a border colour.
+   * Track the active lyric line in its own loop and publish only the line *text*
+   * to React. The clock ticks far faster than the line changes, so this re-renders
+   * once per lyric rather than once per frame.
    */
+  const lyricsState = lyrics.state;
+  const globalOffset = settings?.globalOffsetMs ?? 0;
+  const perTrackOffset = lyrics.offsetMs;
+  useEffect(() => {
+    if (lyricsState.kind !== 'ready') {
+      setCurrentLine(null);
+      return;
+    }
+    const parsed = lyricsState.lyrics;
+    let frame = 0;
+    let lastIndex = -2;
+
+    const tick = () => {
+      frame = requestAnimationFrame(tick);
+      const reading = playback.reader();
+      if (!reading) return;
+      const t = lyricTimeMs(reading, {
+        perTrackMs: perTrackOffset,
+        globalMs: globalOffset,
+        fileMs: parsed.fileOffsetMs,
+      });
+      const index = activeLineIndex(parsed.lines, t);
+      if (index === lastIndex) return;
+      lastIndex = index;
+      setCurrentLine(index >= 0 ? (parsed.lines[index]?.text ?? null) : null);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [lyricsState, playback.reader, globalOffset, perTrackOffset]);
+
+  // Reactive border: straight into CSS variables, no React render per frame.
   useEffect(() => {
     const root = document.documentElement;
     let frame = 0;
     let beat = 0;
     let last = performance.now();
-
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick);
       const dt = now - last;
       last = now;
-
       const f = audio.reader();
       if (!f) return;
-
       beat = f.beat ? 1 : Math.max(0, beat - dt / 320);
       root.style.setProperty('--lq-audio-bass', f.bass.toFixed(3));
       root.style.setProperty('--lq-audio-beat', beat.toFixed(3));
     };
     frame = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(frame);
-      root.style.removeProperty('--lq-audio-bass');
-      root.style.removeProperty('--lq-audio-beat');
-    };
+    return () => cancelAnimationFrame(frame);
   }, [audio.reader]);
 
-  const visBox = useDraggableWidget({ x: 440, y: 96 }, locked);
-  const lyricsBox = useDraggableWidget({ x: 48, y: 420 }, locked);
+  const onTransport = useCallback((action: TransportAction) => {
+    ipc.mediaTransport(action).catch((e) => console.error(e));
+  }, []);
+
+  /** In edit mode, dragging the capsule moves the whole window. */
+  const onDragStart = useCallback(
+    (event: React.PointerEvent) => {
+      if (clickThrough) return;
+      if ((event.target as HTMLElement).closest('.lq-no-drag')) return;
+      getCurrentWindow()
+        .startDragging()
+        .catch((e) => console.error(e));
+    },
+    [clickThrough],
+  );
 
   if (!settings) return null;
 
-  const sourceName =
-    playback.sessions.find((s) => s.sourceApp === playback.snapshot?.sourceApp)
-      ?.displayName ??
-    playback.snapshot?.sourceApp ??
-    null;
-
+  const snapshot = playback.snapshot;
+  const editing = !clickThrough;
+  const position = playback.reading?.positionMs ?? snapshot?.positionMs ?? 0;
 
   return (
-    <div className="lq-overlay-root" data-chrome={showChrome}>
-      {/* Now playing — real data from the Windows media session. */}
+    <div className="lq-cap-root" data-editing={editing}>
       <div
-        ref={nowPlaying.ref}
-        className="lq-glass lq-widget lq-widget--np"
+        className="lq-glass lq-cap"
+        data-editing={editing}
         data-reactive="true"
-        data-interactive={!clickThrough}
         data-tinted="true"
-        style={{ transform: `translate3d(${nowPlaying.pos.x}px, ${nowPlaying.pos.y}px, 0)` }}
-        {...nowPlaying.handlers}
+        onPointerDown={onDragStart}
       >
-        <header className="lq-widget__bar">
-          <span className="lq-widget__title">Now playing</span>
-          <span className="lq-widget__id" title="Which overlay window this is">
-            {label}
-          </span>
-          <span className="lq-pill lq-pill--live">live</span>
-        </header>
-
-        <NowPlaying
-          snapshot={playback.snapshot}
-          reading={playback.reading}
-          artworkUrl={playback.artworkUrl}
-          sourceName={sourceName}
-          onTransport={onTransport}
-          onSeek={onSeek}
-          bridgeError={playback.status?.bridgeRunning === false ? playback.status.error : null}
-        />
-
-        {actionError && <p className="lq-widget__note lq-widget__note--warn">{actionError}</p>}
-
-        <div className="lq-widget__actions lq-no-drag">
-          <button
-            type="button"
-            className="lq-btn lq-btn--ghost"
-            onClick={() => {
-              ipc.toggleClickThrough().then(setClickThrough).catch(console.error);
-            }}
-          >
-            {clickThrough ? 'Disable' : 'Enable'} click-through
-          </button>
-          <button type="button" className="lq-btn lq-btn--ghost" onClick={() => setLocked((v) => !v)}>
-            {locked ? 'Unlock' : 'Lock'}
-          </button>
-          <button
-            type="button"
-            className="lq-btn lq-btn--ghost"
-            onClick={() => ipc.showSettingsWindow().catch(console.error)}
-          >
-            Settings
-          </button>
+        {/* Artwork, or a tinted placeholder when the source gives none. */}
+        <div className="lq-cap__art" data-empty={!playback.artworkUrl}>
+          {playback.artworkUrl ? (
+            <img src={playback.artworkUrl} alt="" draggable={false} />
+          ) : (
+            <span aria-hidden="true" />
+          )}
         </div>
 
-        {clickThrough && (
-          <p className="lq-widget__note lq-widget__note--warn">
-            Click-through is on, so this panel ignores the mouse. Press{' '}
-            <kbd>{settings.hotkeys['toggleClickThrough'] ?? 'Ctrl+Alt+C'}</kbd> or use the
-            tray icon to get it back.
-          </p>
-        )}
-      </div>
-
-      {/* Visualiser. Driven by real FFT output from WASAPI loopback capture. */}
-      {showVisualiser && (
-        <div
-          ref={visBox.ref}
-          className="lq-glass lq-widget lq-widget--vis"
-          data-reactive="true"
-          data-interactive={!clickThrough}
-          data-tinted="true"
-          style={{ transform: `translate3d(${visBox.pos.x}px, ${visBox.pos.y}px, 0)` }}
-          {...visBox.handlers}
-        >
-          <header className="lq-widget__bar">
-            <span className="lq-widget__title">Visualiser</span>
-            <select
-              className="lq-input lq-input--compact lq-no-drag"
-              value={visMode}
-              onChange={(e) => setVisMode(e.target.value as VisualiserMode)}
-              aria-label="Visualiser mode"
-            >
-              {VISUALISER_MODES.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </header>
-
-          <Spectrum
-            reader={audio.reader}
-            mode={visMode}
-            fpsCap={settings.fpsCap}
-            height={140}
-          />
-
-          {/* Capture problems are stated. A flat visualiser with no explanation
-              is indistinguishable from a broken one. */}
-          {audio.status && audio.status.state !== 'running' && (
-            <p className="lq-widget__note lq-widget__note--warn">
-              {audio.status.error ?? `Audio capture is ${audio.status.state}.`}
-            </p>
-          )}
-          {audio.status?.state === 'running' && !audio.receiving && (
-            <p className="lq-widget__note">Waiting for audio…</p>
-          )}
-          {audio.status?.state === 'running' && audio.receiving && (
-            <p className="lq-widget__note">
-              {audio.status.deviceName} · {(audio.status.sampleRate / 1000).toFixed(1)} kHz ·
-              system mix, not isolated to one app
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Lyrics. Real now: resolved, matched and timed against the live clock. */}
-      <div
-        ref={lyricsBox.ref}
-        className="lq-glass lq-widget lq-widget--lyrics"
-        data-interactive={!clickThrough}
-        data-tinted="true"
-        style={{ transform: `translate3d(${lyricsBox.pos.x}px, ${lyricsBox.pos.y}px, 0)` }}
-        {...lyricsBox.handlers}
-      >
-        <header className="lq-widget__bar">
-          <span className="lq-widget__title">Lyrics</span>
-          <select
-            className="lq-input lq-input--compact lq-no-drag"
-            value={layout}
-            onChange={(e) => setLayout(e.target.value as LyricsLayout)}
-            aria-label="Lyrics layout"
-          >
-            {LAYOUT_OPTIONS.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-        </header>
-
-        {/* Some sources publish a timeline once and never update it, so the
-            reported position is frozen. Syncing to that would confidently show the
-            wrong line, so the panel says so instead. */}
-        {playback.snapshot?.timingConfidence === 'unknown' && (
-          <p className="lq-widget__note lq-widget__note--warn">
-            {sourceName ?? 'This source'} is not reporting playback position, so lyrics
-            cannot be synchronised to it. Track details still work.
-          </p>
-        )}
-
-        {lyrics.state.kind === 'ready' && playback.snapshot?.timingConfidence !== 'unknown' && (
-          <LyricsPanel
-            lyrics={lyrics.state.lyrics}
-            layout={layout}
-            reader={playback.reader}
-            offsetMs={lyrics.offsetMs}
-            globalOffsetMs={settings.globalOffsetMs}
-            attribution={lyrics.state.resolved.attribution}
-          />
-        )}
-
-        {lyrics.state.kind === 'loading' && <p className="lq-muted">Looking for lyrics…</p>}
-        {lyrics.state.kind === 'idle' && <p className="lq-muted">Waiting for a track.</p>}
-        {lyrics.state.kind === 'absent' && (
-          <p className="lq-muted">No lyrics found for this track.</p>
-        )}
-        {lyrics.state.kind === 'error' && (
-          <p className="lq-widget__note lq-widget__note--warn">{lyrics.state.message}</p>
-        )}
-
-        {/* Not confident enough to apply one unasked, so the user picks. */}
-        {lyrics.state.kind === 'ambiguous' && (
-          <div className="lq-ly__choices lq-no-drag">
-            <p className="lq-muted">
-              Several possible matches — none certain enough to apply automatically.
-            </p>
-            {lyrics.state.options.map((o) => (
-              <button
-                key={o.candidate.id}
-                type="button"
-                className="lq-ly__choice"
-                onClick={() => lyrics.choose(o.candidate)}
-                title={o.reasons.join(' · ')}
-              >
-                <span className="lq-ly__choice-name">
-                  {o.candidate.artistName} — {o.candidate.trackName}
+        <div className="lq-cap__body">
+          {snapshot ? (
+            <>
+              <p className="lq-cap__title" title={snapshot.title}>
+                {snapshot.title}
+              </p>
+              <p className="lq-cap__sub">
+                <span className="lq-cap__artist">
+                  {snapshot.artist ?? <span className="lq-muted">no artist reported</span>}
                 </span>
-                <span className="lq-ly__choice-score">{Math.round(o.score * 100)}%</span>
-              </button>
-            ))}
-          </div>
-        )}
+                <span className="lq-cap__time">
+                  {formatTime(position)}
+                  {snapshot.durationMs ? ` / ${formatTime(snapshot.durationMs)}` : ''}
+                </span>
+              </p>
+            </>
+          ) : (
+            <p className="lq-cap__title lq-muted">
+              {playback.status?.bridgeRunning === false
+                ? 'Media sessions unavailable'
+                : 'Waiting for a supported music source.'}
+            </p>
+          )}
 
-        {/* Offset controls. Saved per track, keyed without the provider so an
-            adjustment made in one player still applies in another. */}
-        {playback.offsetKey && (
-          <div className="lq-ly__offset lq-no-drag">
-            <span className="lq-ly__offset-label">
-              Offset <em>{lyrics.offsetMs > 0 ? `+${lyrics.offsetMs}` : lyrics.offsetMs} ms</em>
-            </span>
-            <div className="lq-ly__offset-buttons">
-              {[-100, -50, -10, 10, 50, 100].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  className="lq-btn lq-btn--ghost lq-btn--tiny"
-                  onClick={() => lyrics.nudgeOffset(d)}
-                  title={d > 0 ? 'Show lyrics earlier' : 'Show lyrics later'}
-                >
-                  {d > 0 ? `+${d}` : d}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="lq-btn lq-btn--ghost lq-btn--tiny"
-                onClick={lyrics.resetOffset}
-              >
-                reset
-              </button>
-              <button
-                type="button"
-                className="lq-btn lq-btn--ghost lq-btn--tiny"
-                onClick={lyrics.retry}
-                title="Forget the cached match and look again"
-              >
-                re-match
-              </button>
-            </div>
+          {/* One lyric line. Every failure mode explains itself. */}
+          <p className="lq-cap__lyric" data-state={lyrics.state.kind}>
+            {lyrics.state.kind === 'ready' &&
+              (currentLine ?? <span className="lq-muted">♪</span>)}
+            {lyrics.state.kind === 'loading' && (
+              <span className="lq-muted">Looking for lyrics…</span>
+            )}
+            {lyrics.state.kind === 'absent' && (
+              <span className="lq-muted">Synced lyrics unavailable for this track.</span>
+            )}
+            {lyrics.state.kind === 'ambiguous' && (
+              <span className="lq-muted">
+                Several possible lyric matches — choose one in Settings.
+              </span>
+            )}
+            {lyrics.state.kind === 'error' && (
+              <span className="lq-warn">{lyrics.state.message}</span>
+            )}
+            {lyrics.state.kind === 'idle' && !snapshot && (
+              <span className="lq-muted">Waiting for a supported music source.</span>
+            )}
+          </p>
+        </div>
+
+        {/* A slim visualiser strip, not a panel. */}
+        <div className="lq-cap__vis">
+          <Spectrum reader={audio.reader} mode={visMode} fpsCap={settings.fpsCap} height={46} />
+        </div>
+
+        {/* Edit chrome, only when click-through is off. */}
+        {editing && (
+          <div className="lq-cap__edit lq-no-drag">
+            <span className="lq-cap__edit-hint">Drag to move · {label}</span>
+            <button
+              type="button"
+              className="lq-btn lq-btn--tiny"
+              onClick={() => onTransport('previous')}
+              disabled={!snapshot?.controls.previous}
+              title={snapshot?.controls.previous ? 'Previous' : 'This source cannot skip back'}
+            >
+              &lsaquo;&lsaquo;
+            </button>
+            <button
+              type="button"
+              className="lq-btn lq-btn--tiny"
+              onClick={() => onTransport('play-pause')}
+              disabled={!snapshot?.controls.play && !snapshot?.controls.pause}
+            >
+              {snapshot?.status === 'playing' ? '❚❚' : '▶'}
+            </button>
+            <button
+              type="button"
+              className="lq-btn lq-btn--tiny"
+              onClick={() => onTransport('next')}
+              disabled={!snapshot?.controls.next}
+              title={snapshot?.controls.next ? 'Next' : 'This source cannot skip forward'}
+            >
+              &rsaquo;&rsaquo;
+            </button>
+            <button
+              type="button"
+              className="lq-btn lq-btn--tiny"
+              onClick={() => ipc.showSettingsWindow().catch(console.error)}
+            >
+              Settings
+            </button>
+            <button
+              type="button"
+              className="lq-btn lq-btn--tiny lq-btn--done"
+              onClick={() => {
+                ipc.setClickThrough(true).then(setClickThrough).catch(console.error);
+              }}
+            >
+              Done
+            </button>
           </div>
         )}
       </div>

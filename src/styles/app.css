@@ -1142,3 +1142,159 @@ kbd {
     0 10px calc(26px * var(--lq-glass-shadow-softness)) rgb(var(--lq-bg) / 0.42),
     0 0 calc(28px * var(--lq-audio-beat)) rgb(var(--lq-accent) / calc(var(--lq-audio-beat) * 0.5));
 }
+
+/* --------------------------------------------------------- overlay capsule */
+
+/*
+ * The overlay root must never be opaque and must never capture the mouse. These
+ * two rules are the last line of defence behind the native click-through flag and
+ * the inline styles in index.html.
+ */
+.lq-cap-root {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.lq-cap {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  grid-template-areas:
+    'art body'
+    'vis vis'
+    'edit edit';
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  /* Still inert in normal mode: the native style does the real work, this makes
+     it true in the DOM as well. */
+  pointer-events: none;
+}
+
+/* Only in edit mode does the capsule accept the mouse at all. */
+.lq-cap[data-editing='true'] {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.lq-cap[data-editing='true']:active {
+  cursor: grabbing;
+}
+
+.lq-cap__art {
+  grid-area: art;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgb(var(--lq-surface-raised) / 0.75);
+  box-shadow: inset 0 0 0 1px rgb(var(--lq-glass-highlight) / 0.14);
+}
+
+.lq-cap__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lq-cap__art[data-empty='true'] span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(140deg, rgb(var(--lq-accent) / 0.45), rgb(var(--lq-album-accent) / 0.3));
+}
+
+.lq-cap__body {
+  grid-area: body;
+  min-width: 0;
+}
+
+.lq-cap__title {
+  margin: 0;
+  font-size: var(--lq-text-base);
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lq-cap__sub {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lq-space-2);
+  margin: 2px 0 0;
+  font-size: var(--lq-text-xs);
+  color: rgb(var(--lq-text-secondary));
+}
+
+.lq-cap__artist {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lq-cap__time {
+  flex: none;
+  font-family: var(--lq-font-mono);
+  color: rgb(var(--lq-text-muted));
+}
+
+.lq-cap__lyric {
+  margin: 6px 0 0;
+  font-family: var(--lq-font-lyrics);
+  font-size: var(--lq-text-sm);
+  font-weight: 600;
+  line-height: 1.25;
+  /* Two lines maximum: a long lyric must not grow the capsule. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.5em;
+}
+
+.lq-cap__lyric[data-state='ready'] {
+  color: rgb(var(--lq-accent-strong));
+  text-shadow: 0 0 calc(14px * var(--lq-glass-edge-glow)) rgb(var(--lq-accent) / 0.35);
+}
+
+.lq-cap__vis {
+  grid-area: vis;
+  min-width: 0;
+}
+
+.lq-cap__edit {
+  grid-area: edit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid rgb(var(--lq-border) / 0.18);
+}
+
+.lq-cap__edit-hint {
+  flex: 1;
+  font-size: 0.625rem;
+  color: rgb(var(--lq-text-muted));
+  font-family: var(--lq-font-mono);
+}
+
+.lq-btn--done {
+  border-color: rgb(var(--lq-success) / 0.5);
+  background: rgb(var(--lq-success) / 0.18);
+  color: rgb(var(--lq-success));
+}
+
+/* In edit mode the capsule is obviously grabbable. */
+.lq-cap[data-editing='true'] {
+  outline: 1px dashed rgb(var(--lq-accent) / 0.55);
+  outline-offset: -3px;
+}

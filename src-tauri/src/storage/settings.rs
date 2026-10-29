@@ -144,12 +144,18 @@ impl Default for Settings {
         hotkeys.insert("toggleClickThrough".into(), "Ctrl+Alt+C".into());
         hotkeys.insert("toggleVisualiser".into(), "Ctrl+Alt+V".into());
         hotkeys.insert("openSettings".into(), "Ctrl+Alt+O".into());
+        // The escape hatch. Handled natively, so it works even when every webview
+        // is hung - which is the only time anyone reaches for it.
+        hotkeys.insert("emergencyHide".into(), "Ctrl+Alt+H".into());
 
         Self {
             theme: "liquid-midnight".into(),
             performance_preset: "balanced".into(),
             fps_cap: 60,
-            click_through: false,
+            // ON by default. A blank or hung overlay page has ordinary pointer
+            // behaviour and will swallow every click; click-through means even a
+            // completely broken overlay cannot trap the mouse.
+            click_through: true,
             overlay_visible: true,
             launch_at_login: false,
             start_minimised: false,

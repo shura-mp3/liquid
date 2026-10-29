@@ -17,8 +17,8 @@ import {
   type Diagnostics,
   type GlassSettings,
   type AudioDevice,
+  type OverlayInfo,
   type MonitorInfo,
-  type OverlayStatus,
   type Settings,
 } from '../providers/ipc';
 
@@ -88,7 +88,6 @@ export function SettingsApp() {
   const [section, setSection] = useState<SectionId>('general');
   const [settings, setSettings] = useState<Settings | null>(null);
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
-  const [status, setStatus] = useState<OverlayStatus[]>([]);
   const [diag, setDiag] = useState<Diagnostics | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,7 +107,6 @@ export function SettingsApp() {
   useEffect(() => {
     if (section !== 'overlays' && section !== 'diagnostics') return;
     const tick = () => {
-      ipc.overlayStatus().then(setStatus).catch(() => {});
       ipc.getDiagnostics().then(setDiag).catch(() => {});
     };
     tick();
@@ -335,7 +333,7 @@ export function SettingsApp() {
             />
             <Toggle
               label="Click-through (the overlay ignores the mouse)"
-              hint={`Always recoverable: ${settings.hotkeys['toggleClickThrough'] ?? 'Ctrl+Alt+C'} or the tray menu restores it.`}
+              hint={`On by default so a broken overlay can never trap the mouse. Turn it off to move the overlay, then press Done. Toggle: ${settings.hotkeys['toggleClickThrough'] ?? 'Ctrl+Alt+C'}.`}
               checked={settings.clickThrough}
               onChange={(v) => {
                 ipc
@@ -345,7 +343,23 @@ export function SettingsApp() {
               }}
             />
 
+            <div className="lq-note">
+              <strong>If an overlay ever misbehaves.</strong> Press{' '}
+              <kbd>{settings.hotkeys['emergencyHide'] ?? 'Ctrl+Alt+H'}</kbd>, or use
+              <em> Hide all overlays now</em> in the tray menu. Both are handled
+              natively, so they work even if an overlay's interface has stopped
+              responding. Overlays also start hidden and click-through, and any that
+              fails to load within 15 seconds is hidden automatically.
+            </div>
+
             <div className="lq-row-end">
+              <button
+                type="button"
+                className="lq-btn lq-btn--ghost"
+                onClick={() => ipc.emergencyHideOverlays().catch((e) => setError(String(e)))}
+              >
+                Hide all overlays now
+              </button>
               <button
                 type="button"
                 className="lq-btn"
@@ -356,48 +370,7 @@ export function SettingsApp() {
             </div>
 
             <h3 className="lq-subhead">Overlay windows</h3>
-            {status.length === 0 ? (
-              <p className="lq-muted">No overlay windows reported.</p>
-            ) : (
-              <table className="lq-table">
-                <thead>
-                  <tr>
-                    <th>Window</th>
-                    <th>Topmost</th>
-                    <th>Styles</th>
-                    <th>Click-through</th>
-                    <th>Visible</th>
-                    <th>Obstruction</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {status.map((s) => (
-                    <tr key={s.label}>
-                      <td>
-                        <code>{s.label}</code>
-                      </td>
-                      <td>{s.topmost ? 'yes' : 'no'}</td>
-                      <td>
-                        {s.stylesOk ? (
-                          <span className="lq-ok">ok</span>
-                        ) : (
-                          <span className="lq-warn">incomplete</span>
-                        )}
-                      </td>
-                      <td>{s.clickThrough ? 'yes' : 'no'}</td>
-                      <td>{s.visible ? 'yes' : 'no'}</td>
-                      <td>
-                        {s.obstruction === 'none' ? (
-                          <span className="lq-muted">none</span>
-                        ) : (
-                          <span className="lq-warn">suspected exclusive fullscreen</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <OverlayStateTable />
 
             <div className="lq-note">
               <strong>Where an overlay cannot appear.</strong> Exclusive-fullscreen games,
@@ -705,6 +678,82 @@ function SourcesPanel() {
  * the limitation that matters most: on Windows 10 the mix cannot be separated per
  * application, so the visualiser is watching everything the machine plays.
  */
+/**
+ * Live overlay lifecycle.
+ *
+ * Shows the actual state machine, not just "visible or not". A window stuck in
+ * `loading`, or one the watchdog has `failed`, is the difference between "the
+ * overlay is off" and "the overlay is broken" — and that distinction is what was
+ * missing when a blank window ended up pinned over the desktop.
+ */
+function OverlayStateTable() {
+  const [rows, setRows] = useState<OverlayInfo[]>([]);
+
+  useEffect(() => {
+    const tick = () => {
+      ipc.getOverlayStates().then(setRows).catch(() => {});
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  if (rows.length === 0) {
+    return <p className="lq-muted">No overlay windows are registered.</p>;
+  }
+
+  return (
+    <>
+      <table className="lq-table">
+        <thead>
+          <tr>
+            <th>Window</th>
+            <th>Monitor</th>
+            <th>State</th>
+            <th>Click-through</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label}>
+              <td>
+                <code>{r.label}</code>
+              </td>
+              <td>
+                <code>{r.monitorId}</code>
+              </td>
+              <td>
+                <span
+                  className={
+                    r.state === 'failed'
+                      ? 'lq-error'
+                      : r.state === 'visible'
+                        ? 'lq-ok'
+                        : 'lq-warn'
+                  }
+                >
+                  {r.state}
+                </span>
+                {r.state === 'loading' && (
+                  <span className="lq-muted"> · {(r.ageMs / 1000).toFixed(0)}s</span>
+                )}
+              </td>
+              <td>{r.clickThrough ? 'on' : 'off (editing)'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows
+        .filter((r) => r.error)
+        .map((r) => (
+          <div key={r.label} className="lq-banner lq-banner--error">
+            <strong>{r.label}:</strong> {r.error}
+          </div>
+        ))}
+    </>
+  );
+}
+
 function AudioPanel() {
   const audio = useAudio();
   const [devices, setDevices] = useState<AudioDevice[]>([]);

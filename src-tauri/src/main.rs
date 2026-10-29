@@ -6,6 +6,7 @@ mod commands;
 mod diagnostics;
 mod lyrics;
 mod media;
+mod overlays;
 mod platform;
 mod state;
 mod storage;
@@ -13,7 +14,7 @@ mod timing;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::Manager;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use state::AppState;
@@ -23,6 +24,8 @@ use storage::SettingsStore;
 /// strings so a typo is a compile error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
+    /// Hide every overlay at once. The escape hatch, handled natively.
+    EmergencyHide,
     ToggleLyrics,
     ToggleHud,
     ToggleGlass,
@@ -40,6 +43,7 @@ impl Action {
             "toggleClickThrough" => Self::ToggleClickThrough,
             "toggleVisualiser" => Self::ToggleVisualiser,
             "openSettings" => Self::OpenSettings,
+            "emergencyHide" => Self::EmergencyHide,
             _ => return None,
         })
     }
@@ -53,6 +57,7 @@ impl Action {
             Self::ToggleVisualiser => "liquid://toggle-visualiser",
             Self::ToggleClickThrough => "liquid://toggle-click-through",
             Self::OpenSettings => "liquid://open-settings",
+            Self::EmergencyHide => "liquid://emergency-hide",
         }
     }
 }
@@ -65,6 +70,12 @@ fn run_action(app: &tauri::AppHandle, action: Action) {
             if let Err(e) = commands::show_settings_window(app.clone()) {
                 tracing::warn!(error = %e, "could not show settings window");
             }
+        }
+        Action::EmergencyHide => {
+            // Deliberately does not touch a webview: this must work when every
+            // frontend is hung, which is the only time it is needed.
+            overlays::manager::emergency_hide_all(app);
+            let _ = commands::show_settings_window(app.clone());
         }
         Action::ToggleClickThrough => {
             // Handled natively: the whole point of this hotkey is that it works when
@@ -86,11 +97,11 @@ fn run_action(app: &tauri::AppHandle, action: Action) {
     }
 }
 
-/// Create one transparent overlay window per monitor.
+/// Create the per-monitor overlays through the manager.
 ///
-/// One window per monitor rather than a single spanning window: a spanning window
-/// breaks per-monitor DPI, forces the largest monitor's backing store everywhere,
-/// and makes click-through regions ambiguous.
+/// The manager owns every safety rule — small by default, hidden until the
+/// frontend reports in, click-through on, no duplicates — so nothing here can
+/// accidentally put an unverified window on screen.
 fn create_overlays(app: &tauri::AppHandle) -> tauri::Result<()> {
     let monitors = match commands::get_monitors() {
         Ok(m) if !m.is_empty() => m,
@@ -104,59 +115,23 @@ fn create_overlays(app: &tauri::AppHandle) -> tauri::Result<()> {
         }
     };
 
-    for (index, monitor) in monitors.iter().enumerate() {
-        let label = format!("overlay-{index}");
-        if app.get_webview_window(&label).is_some() {
-            continue;
-        }
-
-        // Physical pixels from the OS, divided by this monitor's own scale factor,
-        // because Tauri positions and sizes in logical units.
-        let scale = if monitor.scale_factor > 0.0 {
-            monitor.scale_factor
-        } else {
-            1.0
-        };
-        let x = f64::from(monitor.work_x) / scale;
-        let y = f64::from(monitor.work_y) / scale;
-        let w = f64::from(monitor.work_width) / scale;
-        let h = f64::from(monitor.work_height) / scale;
-
-        let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
-            .title("LIQUID Overlay")
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            // Never take activation: clicking the overlay must not pull focus out
-            // of a game or editor.
-            .focused(false)
-            .shadow(false)
-            .resizable(false)
-            .maximizable(false)
-            .minimizable(false)
-            .position(x, y)
-            .inner_size(w, h)
-            .visible(false)
-            .build()?;
-
-        // Styles that Tauri does not expose are applied directly.
-        if let Err(e) = commands::init_overlay(window.clone()) {
-            tracing::error!(label = %label, error = %e, "could not apply overlay styles");
-        }
-
-        tracing::info!(
-            label = %label,
-            monitor = %monitor.id,
-            scale,
-            x, y, w, h,
-            "overlay created"
-        );
-    }
+    overlays::manager::create_overlays(app, &monitors)?;
+    overlays::manager::cleanup_stale(app, &monitors);
+    overlays::manager::hide_unmanaged(app);
+    overlays::manager::spawn_watchdog(app);
     Ok(())
 }
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    // First in the menu on purpose: when an overlay is misbehaving this is what
+    // the user is hunting for, and it must not be buried.
+    let panic_hide = MenuItem::with_id(
+        app,
+        "emergency-hide",
+        "Hide all overlays now",
+        true,
+        None::<&str>,
+    )?;
     let show = MenuItem::with_id(app, "show", "Open LIQUID settings", true, None::<&str>)?;
     let toggle_overlay =
         MenuItem::with_id(app, "overlay", "Show / hide overlay", true, None::<&str>)?;
@@ -172,7 +147,19 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit LIQUID", true, None::<&str>)?;
 
-    let menu = Menu::with_items(app, &[&show, &toggle_overlay, &rescue, &separator, &quit])?;
+    let top_separator = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &panic_hide,
+            &top_separator,
+            &show,
+            &toggle_overlay,
+            &rescue,
+            &separator,
+            &quit,
+        ],
+    )?;
 
     TrayIconBuilder::with_id("liquid-tray")
         .icon(
@@ -184,11 +171,25 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
+            "emergency-hide" => run_action(app, Action::EmergencyHide),
             "show" => run_action(app, Action::OpenSettings),
             "overlay" => {
-                let state = app.state::<AppState>();
-                let next = !state.settings.lock().overlay_visible;
-                if let Err(e) = commands::set_overlay_visible(app.clone(), state, next) {
+                let next = {
+                    let state = app.state::<AppState>();
+                    let next = !state.settings.lock().overlay_visible;
+                    state.settings.lock().overlay_visible = next;
+                    let _ = state.persist();
+                    next
+                };
+                let result = if next {
+                    overlays::manager::show_all(app)
+                } else {
+                    for label in app.state::<AppState>().overlays.labels() {
+                        let _ = overlays::manager::hide(app, &label);
+                    }
+                    Ok(())
+                };
+                if let Err(e) = result {
                     tracing::warn!(error = %e, "could not toggle overlay visibility");
                 }
             }
@@ -314,10 +315,20 @@ fn start_audio_engine(app: &tauri::AppHandle) {
         band_count,
         move || clock.now_ms(),
         move |frame| {
-            // Fired from the audio thread. Emitting directly avoids a hop through
-            // the main thread for every one of ~50 frames a second.
-            if let Err(e) = emit_handle.emit("liquid://audio", frame) {
-                tracing::debug!(error = %e, "could not emit audio frame");
+            // Targeted at the overlays rather than broadcast.
+            //
+            // `emit` goes to every webview, so the settings window was also being
+            // handed ~50 frames a second it has no use for — a third more IPC
+            // traffic and a third more JSON serialisation, all of it marshalled
+            // through the event loop that also pumps window messages. Starving
+            // that loop is a plausible contributor to an overlay going "Not
+            // Responding", so the frames now go only where they are drawn.
+            for (label, _) in emit_handle.webview_windows() {
+                if label.starts_with("overlay-") || label == "island" {
+                    if let Err(e) = emit_handle.emit_to(&label, "liquid://audio", &frame) {
+                        tracing::debug!(error = %e, %label, "could not emit audio frame");
+                    }
+                }
             }
         },
     );
@@ -375,6 +386,8 @@ fn main() {
             commands::get_capture_status,
             commands::list_audio_devices,
             commands::set_audio_device,
+            commands::emergency_hide_overlays,
+            commands::get_overlay_states,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -405,19 +418,14 @@ fn main() {
             start_media_bridge(&handle);
             start_audio_engine(&handle);
 
-            // Restore the saved overlay state.
-            if overlay_visible {
-                let state = handle.state::<AppState>();
-                if let Err(e) = commands::set_overlay_visible(handle.clone(), state, true) {
-                    tracing::warn!(error = %e, "could not show overlays");
-                }
-            }
+            // Deliberately does NOT show the overlays. Each one becomes visible
+            // only when its own frontend signals readiness, via the manager. The
+            // previous code showed them here unconditionally, which is how a page
+            // that never loaded became a fullscreen white blocker.
             if want_click_through {
-                let state = handle.state::<AppState>();
-                if let Err(e) = commands::set_click_through(handle.clone(), state, true) {
-                    tracing::warn!(error = %e, "could not restore click-through");
-                }
+                tracing::info!("click-through was enabled previously; it stays on");
             }
+            let _ = overlay_visible;
 
             // The settings window starts hidden so `--minimised` can start straight
             // to the tray; otherwise it is shown now.

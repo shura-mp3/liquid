@@ -4,6 +4,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LIQUID</title>
+    <!--
+      Inline, before anything else can fail.
+
+      An overlay window is transparent and always on top. If the stylesheet bundle
+      fails to load, or the script throws before React mounts, the document still
+      has to be transparent and must not swallow the mouse — otherwise the window
+      becomes an opaque white sheet pinned over the desktop, which is exactly the
+      failure this guards against. These rules depend on no bundle and no JS.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+      /* Nothing in a bare document should capture clicks. The app re-enables
+         pointer events only on the elements that genuinely need them. */
+      body:not([data-window='main']) {
+        pointer-events: none;
+        overflow: hidden;
+      }
+      #root:empty {
+        display: none;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

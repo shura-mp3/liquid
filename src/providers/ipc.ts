@@ -222,6 +222,28 @@ export interface CaptureStatus {
   perProcessCapture: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Overlay lifecycle
+// ---------------------------------------------------------------------------
+
+export type OverlayState =
+  | 'created'
+  | 'loading'
+  | 'ready'
+  | 'visible'
+  | 'hidden'
+  | 'failed'
+  | 'destroyed';
+
+export interface OverlayInfo {
+  label: string;
+  monitorId: string;
+  state: OverlayState;
+  ageMs: number;
+  clickThrough: boolean;
+  error: string | null;
+}
+
 export interface Diagnostics {
   appVersion: string;
   monotonicClockDegraded: boolean;
@@ -276,6 +298,9 @@ export const ipc = {
   lyricsSaveEdited: (offsetKey: string, text: string) =>
     invoke<ResolvedLyrics>('lyrics_save_edited', { offsetKey, text }),
   lyricsForget: (offsetKey: string) => invoke<void>('lyrics_forget', { offsetKey }),
+  getOverlayStates: () => invoke<OverlayInfo[]>('get_overlay_states'),
+  emergencyHideOverlays: () => invoke<void>('emergency_hide_overlays'),
+
   getCaptureStatus: () => invoke<CaptureStatus>('get_capture_status'),
   listAudioDevices: () => invoke<AudioDevice[]>('list_audio_devices'),
   setAudioDevice: (deviceId: string | null) => invoke<void>('set_audio_device', { deviceId }),

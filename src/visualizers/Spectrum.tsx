@@ -115,7 +115,13 @@ void main() {
 
   } else {                        // particles
     // Cheap GPU particles: a hash grid of points pushed outward by bass. No
-    // per-particle state on the CPU, so the count costs nothing to raise.
+    // per-particle state on the CPU.
+    //
+    // The loop count is bounded deliberately. This runs per fragment, so the cost
+    // is particles x pixels: at 48 iterations over a 1920x1040 surface that is
+    // ~96M operations per frame, enough to stall a driver and leave the window
+    // unresponsive. The overlay is now a small capsule, which keeps this cheap,
+    // but the bound matters if a larger surface is ever reintroduced.
     vec2 p = (gl_FragCoord.xy - 0.5 * uResolution) / min(uResolution.x, uResolution.y);
     for (int i = 0; i < 48; i++) {
       float fi = float(i);
@@ -263,6 +269,8 @@ export function Spectrum({ reader, mode, fpsCap, height = 120 }: Props) {
       if (now - lastDraw < minInterval) return;
       lastDraw = now;
 
+      // Guard the fill rate as well as the loop count: a visualiser is decoration
+      // and must never be the reason a window stops responding.
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const cssWidth = canvas.clientWidth;
       const cssHeight = canvas.clientHeight;

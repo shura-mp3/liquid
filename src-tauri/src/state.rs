@@ -39,6 +39,9 @@ pub struct AppState {
     /// Shared so a blocking lookup can take a clone onto a worker thread while the
     /// request throttle stays global rather than per-caller.
     pub lyrics_client: Arc<LrclibClient>,
+    /// Lifecycle of every overlay window. The single source of truth for whether
+    /// a window is safe to put on screen.
+    pub overlays: crate::overlays::OverlayRegistry,
     /// `None` when audio capture has not been started or could not start at all.
     #[cfg(windows)]
     pub audio: Mutex<Option<crate::audio::wasapi::AudioEngine>>,
@@ -60,6 +63,7 @@ impl AppState {
             #[cfg(windows)]
             media: Mutex::new(None),
             lyrics_client: Arc::new(LrclibClient::new()),
+            overlays: crate::overlays::OverlayRegistry::default(),
             #[cfg(windows)]
             audio: Mutex::new(None),
             last_click_through_change: Mutex::new(None),
