@@ -429,6 +429,7 @@ window.
 | Readiness gating | **PASS (live)** | `overlay created off-screen ... awaiting frontend` then `overlay frontend ready` 170 ms later; only then is it moved on screen. |
 | Watchdog hides a non-loading overlay | **PASS (live)** | Observed during the repair: `overlay never reported ready; failing and hiding it ... timeout_s=15`. The desktop stayed usable. |
 | Recovery after failure | **PASS (unit)** | A fresh readiness signal revives a failed overlay; the target position survives. |
+| **Production EXE, no dev server** | **PASS (live)** | Built 22:31, launched with nothing listening on 5183. `frontend ready label=main href=http://tauri.localhost/`, both overlays created off-screen and ready within 170 ms. Probe: both `420x160` with `ex=0x080401B8` (click-through). 65 MB. |
 | **P11.2, P11.3, P11.6, P11.7** | **NOT VERIFIED** | All need a human clicking and looking. |
 
 ---

@@ -15,7 +15,8 @@ placeholder text in it is not a feature.
 
 | Area | State |
 |---|---|
-| Transparent, borderless, always-on-top overlay (one window per monitor) | working |
+| Transparent, borderless, always-on-top overlay capsule (one per monitor) | working |
+| Overlay safety: small by default, hidden until ready, click-through, watchdog | working |
 | Click-through, with a hotkey **and** a tray item that always restore interactivity | working |
 | Overlay never takes focus from the foreground app (`WS_EX_NOACTIVATE`) | working |
 | Draggable, snapping, lockable widgets | working |
@@ -157,6 +158,30 @@ or right-click the tray icon and choose *Restore interactivity*. Both paths work
 independently of the overlay window, so you cannot get locked out.
 
 ---
+
+## The overlay, and why it is small
+
+The overlay is a compact capsule, roughly 420x160, near the top of each monitor. It
+is **not** a fullscreen canvas, and that is deliberate.
+
+An earlier version created the overlay at the full size of the monitor's work area.
+When its page failed to paint, the result was a fullscreen opaque white window
+pinned above everything, swallowing every click — the desktop became unusable. A
+window that large has no business existing before it is known to work.
+
+The rules now, all enforced in the native layer rather than in React:
+
+- **Click-through is on by default.** Clicks pass to whatever is behind. Turn it off
+  only to move the capsule, then press **Done**.
+- **An overlay is created off-screen** and only moved into place once its frontend
+  reports that it has rendered.
+- **A watchdog hides any overlay** that has not reported within 15 seconds, and
+  Settings → Overlays shows why.
+- **Emergency hide is native.** `Ctrl+Alt+H`, or *Hide all overlays now* at the top
+  of the tray menu. Neither touches a webview, so both work when one is hung.
+
+If an overlay ever misbehaves, `Ctrl+Alt+H` is the answer, and it works even if the
+interface has stopped responding.
 
 ## Troubleshooting
 

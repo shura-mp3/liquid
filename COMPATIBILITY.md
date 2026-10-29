@@ -168,6 +168,15 @@ as legal clearance.
 | Per-monitor DPI v2 | SUPPORTED (1703+) | Used. |
 | Genuine backdrop refraction (sampling pixels of windows behind) | **Not available to a transparent overlay** | See below. |
 
+### Overlay window safety (learned the hard way)
+
+| Finding | Detail |
+|---|---|
+| **`visible(false)` is a deadlock, not a safeguard** | WebView2 does not navigate a hidden window. An overlay created hidden never loads, so it never reports ready, so it is never shown. Windows must be created **off-screen** instead and moved into place once ready. |
+| **`requestAnimationFrame` is suspended for a non-composited window** | A readiness signal scheduled on rAF never fires for an off-screen overlay. Readiness must come from a React mount effect, which runs on commit regardless of visibility. |
+| A fullscreen transparent overlay is one failure away from a blocker | If the page does not paint, the window is an opaque sheet over the desktop with ordinary pointer behaviour. Overlays are now small by default and click-through by default, so neither a blank page nor a hung one can cover or capture anything. |
+| Off-screen parking must be computed, not hard-coded | A monitor can legitimately sit at negative coordinates, so "far to the left" has to mean far left of the leftmost monitor in the actual layout. |
+
 ### The glass honesty note
 
 A shader in a transparent overlay **cannot** sample the pixels of arbitrary windows behind
