@@ -39,18 +39,20 @@ impl MonotonicClock {
             };
             // A zero frequency would divide by zero later, so it counts as failure.
             let usable = ok && frequency > 0;
-            return Self {
+            Self {
                 frequency: if usable { frequency } else { 1 },
                 origin,
                 fallback_origin: Instant::now(),
                 degraded: !usable,
-            };
+            }
         }
 
         #[cfg(not(windows))]
-        Self {
-            fallback_origin: Instant::now(),
-            degraded: true,
+        {
+            Self {
+                fallback_origin: Instant::now(),
+                degraded: true,
+            }
         }
     }
 
@@ -122,9 +124,7 @@ mod tests {
         let clock = MonotonicClock::new();
         // Collect distinct readings within a single millisecond; a clock truncated
         // to whole milliseconds could not produce a fractional value.
-        let any_fractional = (0..1000)
-            .map(|_| clock.now_ms())
-            .any(|t| t.fract() > 0.0);
+        let any_fractional = (0..1000).map(|_| clock.now_ms()).any(|t| t.fract() > 0.0);
         assert!(any_fractional, "clock appears to lack sub-ms resolution");
     }
 }

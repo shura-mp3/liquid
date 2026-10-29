@@ -22,7 +22,11 @@ fn to_wide(s: &str) -> Vec<u16> {
 
 fn open_run_key(write: bool) -> Result<HKEY> {
     let mut key = HKEY::default();
-    let access = if write { KEY_WRITE | KEY_READ } else { KEY_READ };
+    let access = if write {
+        KEY_WRITE | KEY_READ
+    } else {
+        KEY_READ
+    };
     unsafe {
         RegOpenKeyExW(
             HKEY_CURRENT_USER,
@@ -53,9 +57,8 @@ pub fn set_launch_at_login(enabled: bool, minimised: bool) -> Result<()> {
                 command.push_str(" --minimised");
             }
             let wide = to_wide(&command);
-            let bytes = unsafe {
-                std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2)
-            };
+            let bytes =
+                unsafe { std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2) };
             unsafe {
                 RegSetValueExW(key, VALUE_NAME, None, REG_SZ, Some(bytes))
                     .ok()
@@ -82,9 +85,8 @@ pub fn launches_at_login() -> bool {
         return false;
     };
     let mut size: u32 = 0;
-    let present = unsafe {
-        RegQueryValueExW(key, VALUE_NAME, None, None, None, Some(&mut size)).is_ok()
-    };
+    let present =
+        unsafe { RegQueryValueExW(key, VALUE_NAME, None, None, None, Some(&mut size)).is_ok() };
     unsafe {
         let _ = RegCloseKey(key);
     }

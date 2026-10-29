@@ -156,7 +156,11 @@ pub fn set_overlay_visible(
     visible: bool,
 ) -> Result<(), String> {
     for window in overlay_windows(&app) {
-        let result = if visible { window.show() } else { window.hide() };
+        let result = if visible {
+            window.show()
+        } else {
+            window.hide()
+        };
         result.map_err(|e| format!("could not change overlay visibility: {e}"))?;
 
         // tao rewrites the whole extended-style word from its own flag model when it

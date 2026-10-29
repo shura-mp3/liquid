@@ -3,14 +3,13 @@
 //! The extended-style combination here is deliberate, because combining these
 //! blindly produces a window that cannot be closed or that steals focus from games:
 //!
-//! - `WS_EX_TOPMOST`    — sit above ordinary windows.
+//! - `WS_EX_TOPMOST` — sit above ordinary windows.
 //! - `WS_EX_TOOLWINDOW` — keep the overlay out of the taskbar and Alt-Tab. The main
-//!                        settings window deliberately does NOT get this.
-//! - `WS_EX_NOACTIVATE` — never take foreground activation. Without this, clicking
-//!                        the overlay pulls focus out of a fullscreen game and can
-//!                        minimise it.
-//! - `WS_EX_TRANSPARENT` — click-through. Applied and removed on demand, never left
-//!                        on without a way back (see the recovery note below).
+//!   settings window deliberately does NOT get this.
+//! - `WS_EX_NOACTIVATE` — never take foreground activation. Without this, clicking the
+//!   overlay pulls focus out of a fullscreen game and can minimise it.
+//! - `WS_EX_TRANSPARENT` — click-through. Applied and removed on demand, never left on
+//!   without a way back (see the recovery note below).
 //!
 //! **`WS_EX_LAYERED` is deliberately NOT set.** Tauri 2.12 creates a transparent
 //! window with `WS_EX_NOREDIRECTIONBITMAP`, so per-pixel alpha comes from
@@ -40,8 +39,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, SetWindowLongPtrW, SetWindowPos,
     GWL_EXSTYLE, GWL_STYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    WS_CAPTION, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_THICKFRAME,
+    WS_CAPTION, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+    WS_THICKFRAME,
 };
 
 use super::{OverlayObstruction, PlatformError, Result};
@@ -59,10 +58,6 @@ impl WindowHandle {
             return Err(PlatformError::NoHandle("null hwnd".into()));
         }
         Ok(Self(HWND(raw as *mut core::ffi::c_void)))
-    }
-
-    pub fn raw(self) -> isize {
-        self.0 .0 as isize
     }
 }
 
@@ -103,8 +98,10 @@ fn set_ex_style(hwnd: HWND, style: isize) -> Result<()> {
 pub fn apply_overlay_styles(h: WindowHandle) -> Result<()> {
     let hwnd = h.0;
     let current = ex_style(hwnd);
-    let wanted =
-        current | WS_EX_TOPMOST.0 as isize | WS_EX_TOOLWINDOW.0 as isize | WS_EX_NOACTIVATE.0 as isize;
+    let wanted = current
+        | WS_EX_TOPMOST.0 as isize
+        | WS_EX_TOOLWINDOW.0 as isize
+        | WS_EX_NOACTIVATE.0 as isize;
     if wanted != current {
         set_ex_style(hwnd, wanted)?;
     }
@@ -141,8 +138,12 @@ pub fn assert_topmost(h: WindowHandle) -> Result<()> {
     }
 }
 
-/// Drop out of the topmost band — used by the OBS capture surface, which should not
-/// float above the user's scene editor.
+/// Drop out of the topmost band — for the OBS capture surface, which should not float
+/// above the user's scene editor.
+///
+/// Not called yet; the OBS output window arrives in Phase 7. Kept here because it is
+/// the natural counterpart to `assert_topmost` and splitting them later would be worse.
+#[allow(dead_code)]
 pub fn clear_topmost(h: WindowHandle) -> Result<()> {
     unsafe {
         SetWindowPos(

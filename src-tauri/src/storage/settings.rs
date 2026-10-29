@@ -228,7 +228,12 @@ impl SettingsStore {
         if from > 0 {
             let backup = self.path.with_extension(format!("v{from}.bak"));
             std::fs::copy(&self.path, &backup)?;
-            tracing::info!(?backup, from, to = SCHEMA_VERSION, "backed up before migration");
+            tracing::info!(
+                ?backup,
+                from,
+                to = SCHEMA_VERSION,
+                "backed up before migration"
+            );
         }
 
         for (version, sql) in MIGRATIONS {
@@ -308,6 +313,10 @@ impl SettingsStore {
         Ok(())
     }
 
+    /// Per-track lyric offset storage. Exercised by the tests below; the lyrics engine
+    /// that calls it lands in Phase 3, so the schema and the accessors are in place
+    /// first rather than bolted on later.
+    #[allow(dead_code)]
     pub fn set_lyrics_offset(&self, offset_key: &str, offset_ms: i64) -> Result<()> {
         self.conn.execute(
             "INSERT INTO lyrics_offsets (offset_key, offset_ms, updated_at)
@@ -318,6 +327,7 @@ impl SettingsStore {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn lyrics_offset(&self, offset_key: &str) -> Option<i64> {
         self.conn
             .query_row(
@@ -346,11 +356,13 @@ mod tests {
         let store = SettingsStore::open(&path).unwrap();
         assert_eq!(store.current_version().unwrap(), SCHEMA_VERSION);
 
-        let mut s = Settings::default();
-        s.theme = "liquid-crimson".into();
-        s.fps_cap = 120;
+        let mut s = Settings {
+            theme: "liquid-crimson".into(),
+            fps_cap: 120,
+            global_offset_ms: -250,
+            ..Default::default()
+        };
         s.glass.blur = 0.9;
-        s.global_offset_ms = -250;
         store.save(&s).unwrap();
 
         let loaded = store.load();
@@ -366,8 +378,10 @@ mod tests {
         let path = temp_db("reopen");
         {
             let store = SettingsStore::open(&path).unwrap();
-            let mut s = Settings::default();
-            s.theme = "liquid-aurora".into();
+            let s = Settings {
+                theme: "liquid-aurora".into(),
+                ..Default::default()
+            };
             store.save(&s).unwrap();
         }
         let store = SettingsStore::open(&path).unwrap();
@@ -386,8 +400,10 @@ mod tests {
 
     #[test]
     fn rejects_an_unusable_fps_cap() {
-        let mut s = Settings::default();
-        s.fps_cap = 7;
+        let s = Settings {
+            fps_cap: 7,
+            ..Default::default()
+        };
         assert!(validate(&s).is_err());
     }
 
@@ -400,8 +416,10 @@ mod tests {
 
     #[test]
     fn rejects_an_absurd_global_offset() {
-        let mut s = Settings::default();
-        s.global_offset_ms = 10_000_000;
+        let s = Settings {
+            global_offset_ms: 10_000_000,
+            ..Default::default()
+        };
         assert!(validate(&s).is_err());
     }
 
@@ -471,8 +489,10 @@ mod tests {
     fn reset_restores_defaults() {
         let path = temp_db("reset");
         let store = SettingsStore::open(&path).unwrap();
-        let mut s = Settings::default();
-        s.theme = "liquid-light".into();
+        let s = Settings {
+            theme: "liquid-light".into(),
+            ..Default::default()
+        };
         store.save(&s).unwrap();
         store.reset().unwrap();
         assert_eq!(store.load().theme, Settings::default().theme);

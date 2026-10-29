@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The pure-logic suites are the ones that guard lyric sync accuracy, so they run
+  # first and fast. They need no Windows APIs.
+  frontend:
+    name: TypeScript — typecheck and tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit and sync-accuracy tests
+        run: npm test
+
+      - name: Report measured sync accuracy
+        run: npm run sync:report
+
+      - name: Build frontend bundle
+        run: npm run build
+
+  native:
+    name: Rust — fmt, clippy and tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # tauri-build validates the config and expects the frontend dist to exist.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: Format check
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        working-directory: src-tauri
+        run: cargo test
+
+  bundle:
+    name: Release bundle
+    runs-on: windows-latest
+    # Only on main: a full LTO release build is slow and not worth it per PR push.
+    if: github.ref == 'refs/heads/main'
+    needs: [frontend, native]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # The bundle is NOT code-signed. Nothing here configures signing, and the
+      # artifact must not be described as signed.
+      - name: Build installer
+        run: npx tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liquid-unsigned-nsis
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error

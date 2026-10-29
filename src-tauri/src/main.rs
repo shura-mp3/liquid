@@ -155,7 +155,8 @@ fn create_overlays(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Open LIQUID settings", true, None::<&str>)?;
-    let toggle_overlay = MenuItem::with_id(app, "overlay", "Show / hide overlay", true, None::<&str>)?;
+    let toggle_overlay =
+        MenuItem::with_id(app, "overlay", "Show / hide overlay", true, None::<&str>)?;
     // The click-through escape hatch. Lives here precisely because the tray keeps
     // working when the overlay itself is unclickable.
     let rescue = MenuItem::with_id(
@@ -168,15 +169,14 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit LIQUID", true, None::<&str>)?;
 
-    let menu = Menu::with_items(
-        app,
-        &[&show, &toggle_overlay, &rescue, &separator, &quit],
-    )?;
+    let menu = Menu::with_items(app, &[&show, &toggle_overlay, &rescue, &separator, &quit])?;
 
     TrayIconBuilder::with_id("liquid-tray")
-        .icon(app.default_window_icon().cloned().ok_or_else(|| {
-            tauri::Error::AssetNotFound("default window icon missing".into())
-        })?)
+        .icon(
+            app.default_window_icon()
+                .cloned()
+                .ok_or_else(|| tauri::Error::AssetNotFound("default window icon missing".into()))?,
+        )
         .tooltip("LIQUID")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -224,9 +224,7 @@ fn register_hotkeys(app: &tauri::AppHandle) {
         settings
             .hotkeys
             .iter()
-            .filter_map(|(key, combo)| {
-                Action::from_settings_key(key).map(|a| (combo.clone(), a))
-            })
+            .filter_map(|(key, combo)| Action::from_settings_key(key).map(|a| (combo.clone(), a)))
             .collect()
     };
 
@@ -241,8 +239,7 @@ fn register_hotkeys(app: &tauri::AppHandle) {
                 if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                     run_action(&handle, action);
                 }
-            })
-        {
+            }) {
             Ok(()) => tracing::info!(%combo, ?action, "hotkey registered"),
             Err(e) => tracing::warn!(
                 %combo,

@@ -103,6 +103,10 @@ pub fn enumerate() -> Result<Vec<MonitorInfo>> {
 /// Called when displays change: a widget parked on a monitor that has been
 /// unplugged would otherwise sit at coordinates the user cannot reach, with no way
 /// to drag it back.
+///
+/// Tested but not yet wired to a caller: the `WM_DISPLAYCHANGE` hook that invokes it
+/// is outstanding Phase 1 work, tracked in `IMPLEMENTATION_PLAN.md`.
+#[allow(dead_code)]
 pub fn rescue_offscreen(
     monitors: &[MonitorInfo],
     x: i32,
@@ -172,8 +176,8 @@ mod tests {
         // Widget was at x=2400 on a second monitor that is now gone.
         let ms = vec![monitor(r"\\.\DISPLAY1", 0, 0, 1920, 1080, true)];
         let (x, y) = rescue_offscreen(&ms, 2400, 300, 300, 200);
-        assert!(x >= 0 && x < 1920, "x was {x}");
-        assert!(y >= 0 && y < 1080, "y was {y}");
+        assert!((0..1920).contains(&x), "x was {x}");
+        assert!((0..1080).contains(&y), "y was {y}");
     }
 
     #[test]

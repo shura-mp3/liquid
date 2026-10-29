@@ -24,6 +24,10 @@ pub struct AppState {
     pub store: Mutex<SettingsStore>,
     pub clock: MonotonicClock,
     last_click_through_change: Mutex<Option<Instant>>,
+    /// Root for the database, logs and the lyrics cache. Held here so Phase 3's
+    /// lyrics cache and Phase 7's history export resolve paths from one place rather
+    /// than each re-deriving them.
+    #[allow(dead_code)]
     pub data_dir: PathBuf,
 }
 
@@ -45,7 +49,9 @@ impl AppState {
         let mut last = self.last_click_through_change.lock();
         let now = Instant::now();
         match *last {
-            Some(previous) if now.duration_since(previous).as_millis() < CLICK_THROUGH_DEBOUNCE_MS => {
+            Some(previous)
+                if now.duration_since(previous).as_millis() < CLICK_THROUGH_DEBOUNCE_MS =>
+            {
                 false
             }
             _ => {

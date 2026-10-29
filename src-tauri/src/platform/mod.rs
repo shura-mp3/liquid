@@ -56,8 +56,6 @@ pub enum PlatformError {
     NoHandle(String),
     #[error("win32 call failed: {0}")]
     Win32(String),
-    #[error("this platform is not supported")]
-    Unsupported,
 }
 
 pub type Result<T> = std::result::Result<T, PlatformError>;
