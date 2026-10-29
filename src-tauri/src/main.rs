@@ -3,6 +3,7 @@
 
 mod commands;
 mod diagnostics;
+mod lyrics;
 mod media;
 mod platform;
 mod state;

@@ -25,6 +25,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
+# Blocking HTTP, which suits a dedicated worker thread far better than pulling in an
+# async runtime for one small JSON API. Actively maintained, very widely used.
+ureq = { version = "3", features = ["json"] }
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.62"
