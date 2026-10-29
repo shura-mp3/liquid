@@ -360,6 +360,26 @@ the machine plays and that per-process capture is unavailable on this build.
 
 ---
 
+### Run 2026-10-29 (f) — gaps closed with Spotify playing
+
+Two items previously recorded as NOT VERIFIED are now verified, from a live session
+with Spotify playing "the rapture" by Kid Moon.
+
+| Previously open | Result | Evidence |
+|---|---|---|
+| **P8.3 `timing=exact` back-dating on a playing source** | **PASS (live)** | `status=Playing timing=Exact age_ms=12.71`. Spotify refreshes its timeline about every 3 s, and between refreshes the observed age climbs to ~2037 ms — so the back-date shifts each observation back by that much. Without it lyrics would run up to two seconds early. |
+| Capability flags on a *playing* source | **PASS (live)** | `play=false pause=true next=true previous=true` — the mirror image of the paused case, which is only possible if the flags are read rather than assumed. |
+| **P10.1 audio features under real music** | **PASS (live)** | `rms=0.0926 peak=0.2202 bass=0.5510 mid=0.3888 treble=0.3061 bands_lit=64 silent=false` — a full, bass-weighted spectrum, versus 5 lit bands for a pure tone. |
+| **P10.5 no false overrun reporting** | **PASS (live)** | `dropped=0` sustained across minutes of real playback. |
+
+Still open: the cannot-seek capability case (Spotify reports `seek=true`), and every
+check that needs eyes on the screen.
+
+**New finding:** Spotify reported `artwork=false` where Brave reported `artwork=true`
+with a 21 KB PNG. Logged for investigation — see the note in `COMPATIBILITY.md` §3.
+
+---
+
 ### Correction to the first Phase 1 run
 
 The original Phase 1 evidence below was gathered by launching the **debug binary

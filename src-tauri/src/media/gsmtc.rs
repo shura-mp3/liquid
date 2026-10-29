@@ -674,10 +674,19 @@ fn read_snapshot(session: &Session, clock: &MonotonicClock) -> Result<PlaybackSn
     let source_app = source_app_of(session).ok().filter(|s| !s.is_empty());
 
     // Artwork is fetched lazily by key; the key changes when the track does.
-    let artwork_key = props
-        .Thumbnail()
-        .ok()
-        .map(|_| super::artwork::key_for(&title, artist.as_deref(), album.as_deref()));
+    // Not every source publishes a thumbnail — the reason is logged rather than
+    // silently producing a HUD with no cover and no explanation.
+    let artwork_key = match props.Thumbnail() {
+        Ok(_) => Some(super::artwork::key_for(
+            &title,
+            artist.as_deref(),
+            album.as_deref(),
+        )),
+        Err(e) => {
+            tracing::debug!(source = ?source_app_of(session).ok(), error = %e, "session publishes no thumbnail");
+            None
+        }
+    };
 
     Ok(PlaybackSnapshot {
         title,
